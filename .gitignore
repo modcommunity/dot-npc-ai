@@ -1,0 +1,21 @@
+# Godot 4
+.godot/
+/android/
+
+# dot-core and dot-npc are separate repositories. For local development, symlink them:
+#   ln -s ../../dot-core/addons/dot_core addons/dot_core
+#   ln -s ../../dot-npc/addons/dot_npc addons/dot_npc
+# Consumers copy all three addons into their own project.
+/addons/dot_core
+/addons/dot_npc
+
+# Exports
+build/
+export_presets.cfg
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Editors
+.vscode/

@@ -1,0 +1,209 @@
+# dot-npc-ai
+
+**How an NPC decides.** A behaviour tree with real running-state memory, a state machine
+for the many cases a tree is overkill for, a per-NPC blackboard that forgets, and the
+steering an NPC needs once there are ninety of them walking at the same door.
+
+Depends on **dot-core and dot-npc**. The second dependency is one file: everything in
+`tree/`, `fsm/`, `steer/` and `core/` names dot-core and nothing else, and only
+`runtime/dot_npc_ai_brain.gd` mentions dot-npc at all. That is deliberate — the decision
+engine could be lifted into a vehicle, a 2D game or a menu, and the twenty lines that
+join it to an NPC are the part that could not.
+
+## Why it is a separate addon
+
+`nightly-todo.md`'s `[npc-1]` asked for the split and the reason holds: a game that wants
+a catalogue, a population budget and a chaser does not need a behaviour tree, and making
+it install one is how an addon family gets a reputation for being heavy. dot-npc's own
+`DotNpcBrain` is enough for most NPCs in most games.
+
+## The one idea
+
+**A behaviour tree is three return values and one hard rule.** The values are SUCCESS,
+FAILURE and RUNNING; the rule is that a node which returned RUNNING must be *resumed*
+next tick rather than restarted.
+
+Almost every hand-written tree gets that wrong and it fails **silently**: a sequence
+whose second child is RUNNING re-runs the first child every tick, so an NPC that was
+walking through a door re-opens the door sixty times a second, or an attack never
+finishes because its wind-up restarts. Everything looks alive and nothing completes.
+
+So `DotNpcAiNode.tick()` is not overridable. It records what happened and calls `_tick`,
+which is what a subclass writes, and `DotNpcAiComposite` owns the running-child index so
+no composite can forget to.
+
+**And a node abandoned mid-action must be told.** A selector whose higher-priority child
+becomes viable drops the running one, and an action holding a door, a reservation or an
+animation has to let go. That is `abort()`, and every composite here propagates it.
+
+## Reactive, and the trap that goes with it
+
+| | |
+| --- | --- |
+| `DotNpcAiSelector.reactive` | **Default on.** A plain selector resumes at the running child and never re-checks the ones above it, so a zombie that started wandering keeps wandering after a player walks in front of it. Reactive is what almost every game wants at the root. |
+| `DotNpcAiSequence.reactive` | **Default off**, and leaving it off is a real trap. |
+
+The commonest thing anybody writes is a guard followed by an action — "have I got a
+target", then "walk at it" — where the action returns RUNNING for ever. A plain sequence
+resumes at the action and **never asks the guard again**, so the NPC chases a target it
+no longer has until something else interrupts.
+
+That was written into this addon's own fixture on the first pass and the suite caught it
+as a zombie that would not go home. `DotNpcAiSequence.reactive_with()` is the guard
+idiom; a plain sequence is for steps in order. Reactive is not the default because
+getting it wrong the other way is the re-opening-door bug, which is louder and easier to
+see than a guard that is never re-checked.
+
+## The state machine is not the poor relation
+
+A zombie has four states and a shopkeeper has two. Expressing either as a tree gives one
+branch per state with a guard on each, which is a state machine with extra steps and
+worse debugging. The tree earns its keep on the NPC with fifteen behaviours and
+priorities between them, and that NPC is the rare one.
+
+Both may be set on one brain, and **the tree runs first**: a machine holds what the NPC
+*is* and a tree decides what it does within that, so a reactive branch writing to the
+blackboard is seen by the machine's transitions on the same tick rather than a tick
+later.
+
+Two things in `DotNpcAiMachine` that are not decoration:
+
+- **`DotNpcAiState.timeout`.** A state with no way out is the commonest broken NPC there
+  is — an attack whose target died, a search whose destination is unreachable. It is
+  checked before the ordinary transitions so it cannot be starved by one that is always
+  false.
+- **`max_transitions_per_tick`.** Two states whose conditions each send the NPC to the
+  other is an infinite loop that **hangs the server** rather than misbehaving, and it is
+  written by accident every time somebody adds a state. The cap turns a hang into a
+  warning, a `thrash_count` and an NPC stuck in one of the two — a bug a person can see.
+
+## Memory that forgets
+
+"I last saw the player at that corner" is the most useful thing an NPC can know and the
+most dangerous thing to keep. An NPC acting on a five-minute-old sighting walks to a
+corner nobody has been near since the round started, which reads as a broken pathfinder.
+
+So every `DotNpcAiBlackboard` write may carry a lifetime and a read past it is a miss.
+Expiry happens **on read** rather than in a sweep: a sweep needs somebody to walk ninety
+dictionaries a tick deleting things nobody was going to look at.
+
+`parent` is the opt-in to a shared board — a squad's, a director's. A read falls through
+and **a write never does**, because an NPC that could write to its squad's board turns
+one NPC's mistaken sighting into the squad's belief.
+
+## Steering, and the gap it fills
+
+dot-npc paths and follows; it says nothing about two NPCs that want to be in the same
+place, because separation is a behaviour rather than a fact about the world. Its
+CLAUDE.md names that as a deliberate gap and this is where it is filled.
+
+Every method returns a **desired direction** and moves nothing. A steering library that
+moved things would have to know what a body is, and that is exactly the dependency this
+addon does not take.
+
+Three things that are not obvious:
+
+- **Separation is weighted below seeking** in `DotNpcAiBrain.steer_with_spacing` (0.6
+  against 1.0). Equal weights give a crowd that spreads out and stops arriving: at a
+  doorway the pushes cancel the seek and the horde mills about outside, which reads as
+  the pathfinder being broken.
+- **`wander` is a drifting angle, not a random direction.** A fresh random direction per
+  tick averages to standing still and looks like a seizure; one re-picked every few
+  seconds looks like a patrol route. It is also seeded per NPC rather than using a global
+  RNG, because a global one makes an NPC's wandering depend on how many others wandered
+  first — and a replay of the same inputs then produces a different world.
+- **`blend` normalises.** Without it an NPC runs faster when two urges happen to agree,
+  which is invisible until somebody wonders why fleeing is quicker than chasing.
+
+## NPCs should not collide with each other
+
+Not a rule this addon can enforce, and the reason its own fixture puts NPCs on their own
+collision layer with the world in their mask and not themselves.
+
+Twelve capsules converging on one point **climb each other**. One ends up perched on
+another's head, `is_on_floor()` says true, the horizontal push is nothing because the
+horizontal offset is nothing, and it chases perfectly at a dead stop with every number
+about it correct. Rigid capsule-versus-capsule collision between NPCs also deadlocks a
+doorway, which is why the horde games that ship do soft avoidance instead.
+
+So: separation keeps NPCs apart, and the physics keeps them out of the walls.
+
+## Four bugs the suite found while this was being written
+
+All four parsed cleanly.
+
+- **`!=` between two mismatched Variant types is a runtime ERROR in GDScript, not
+  `true`.** `DotNpcAiBlackboard.has()` was the textbook sentinel comparison —
+  `get_value(key, now, _MISSING) != _MISSING` — and on 4.7.2
+  `Vector3.ZERO != some_string_name` pushes
+  `Invalid operands 'Vector3' and 'StringName' in operator '!='` and abandons the
+  expression. `has()` answered false for every value that was not a StringName. It is now
+  asked structurally, and comparing against `null` would have been no better, because
+  `null` is a value a caller may legitimately have stored.
+- **A guard behind a plain sequence is never re-checked** — the reactive-sequence trap
+  above, found as a zombie that would not go home.
+- **A horizontal separation cannot separate a stack.** Two NPCs one above the other have
+  a horizontal offset of nothing, so the push is nothing. `separate()` now takes a
+  `tie_break` direction for a degenerate pair, and its range test is horizontal — a 3D
+  test calls a stacked pair "1.8 metres apart" and skips exactly the pair that most needs
+  shoving.
+- **`DotNpcAiBrain` started its context clock at zero.** A brain built ninety seconds
+  into a round measured every cooldown, timeout and memory lifetime against a clock that
+  disagreed with the spawner's, so an NPC spawned late could briefly do everything at
+  once and one spawned early could not. It reads as cooldowns being ignored on some NPCs
+  and not others. It takes the world's clock from the director now.
+
+And two in the suite, both worth as much:
+
+- **A test measured a 3D distance on twelve bodies in free fall** and reported that none
+  had arrived. After four seconds they were 78 metres *below* the goal and about fourteen
+  from it horizontally, which is exactly where they should have been. It needed a floor
+  and a horizontal measure.
+- **A timeout test kept its alert switch on**, so the state it timed out into
+  transitioned straight back. Correct behaviour, and a test of the wrong thing.
+
+## Validating
+
+```bash
+cd godot/dot-npc-ai
+ln -s ../../dot-core/addons/dot_core addons/dot_core   # once
+ln -s ../../dot-npc/addons/dot_npc addons/dot_npc      # once
+
+godot --headless --path . --import
+find . -name '*.gd' -not -path './.godot/*' -not -path './addons/dot_core/*' \
+  -not -path './addons/dot_npc/*' | \
+  while read f; do godot --headless --path . --check-only --script "res://${f#./}"; done
+
+timeout 180 godot --headless --path . res://examples/npc_ai_selftest.tscn
+```
+
+92 checks. Exits non-zero on failure. The last two run twelve real NPCs through a real
+physics world, which is why the suite takes tens of seconds rather than one.
+
+## Where a game plugs in
+
+| To change | Where |
+| --- | --- |
+| What an NPC decides | `DotNpcAiBrain` subclass, `_build()`, named by path in the definition |
+| Whether it is a tree, a machine, or both | `tree` and `machine` on that brain |
+| Whether a branch interrupts a running one | `reactive` on the selector or the sequence |
+| A leaf worth naming | `DotNpcAiNode` subclass; the callable leaves are for one-liners |
+| What an NPC remembers, and for how long | `DotNpcAiBlackboard.put(key, value, now, lifetime)` |
+| What a squad shares | `DotNpcAiBlackboard.parent` |
+| How a crowd spaces itself | `DotNpcAiBrain.steer_with_spacing`, and the weights in it |
+| How aimless movement looks | `DotNpcAiSteering.wander` |
+
+## Things deliberately not here
+
+- **No editor.** A behaviour tree built in a graph editor is a real convenience and a
+  real pile of tooling; this family ships pure GDScript with no build step, and
+  `describe_lines()` is what a tree is debugged with instead.
+- **No utility scoring.** A third decision model on top of two is a choice nobody needs
+  before they have shipped an NPC.
+- **No population or pacing.** That is `dot-npc-ai-director`.
+- **No squads beyond a shared blackboard.** Formations, roles and orders are a game's,
+  and the shared board is the seam they hang off.
+- **No animation.** `DotNpcNetSync.State` is what a client picks one with.
+- **No pathfinding.** dot-npc owns that; this steers between the waypoints it gives.
+- **No threading.** `DotNpcAiParallel` names the fact that every child gets a tick, not
+  concurrency. An NPC has never needed a scheduler.
