@@ -21,6 +21,14 @@ var brain: Object = null
 ## This agent's memory.
 var blackboard: DotNpcAiBlackboard = null
 
+## Who this agent is: reaction time, aim, aggression. Null for a character-less NPC.
+##
+## [b]On the context rather than reached through the brain, because every node wants
+## it.[/b] A condition asking "have I reacted yet" and an action asking "where do I
+## aim" are both two levels down a tree, and a tree that has to know what kind of brain
+## is running it is a tree that only runs under one.
+var character: DotNpcAiCharacter = null
+
 ## Seconds in this tick.
 var delta: float = 0.0
 
@@ -59,9 +67,18 @@ func get_value(key: StringName, fallback: Variant = null) -> Variant:
 	return blackboard.get_value(key, now, fallback)
 
 
+## Whether this agent has had time to act on something first seen at [param seen_at].
+##
+## True when there is no character, which is the right answer: an NPC nobody gave a
+## reaction time to does not have one.
+func has_reacted(seen_at: float) -> bool:
+	return character == null or character.has_reacted(seen_at, now)
+
+
 func describe() -> Dictionary:
 	return {
 		"now": "%.2f" % now,
 		"tick": tick_index,
+		"character": String(character.id) if character != null else "",
 		"blackboard": blackboard.size() if blackboard != null else 0,
 	}

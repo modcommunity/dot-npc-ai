@@ -77,6 +77,31 @@ func abort(ctx: DotNpcAiContext) -> void:
 	_exit(ctx, Status.FAILURE)
 
 
+## A reproducible number in [0, 1) from two integers.
+##
+## [b]Shared by every node here that decides anything by chance, and deliberately not
+## [method randf].[/b] A server rewinding to check a shot, a replay being scrubbed and
+## a second run of the same headless test must all agree about what an NPC chose —
+## and a global RNG agrees with none of them, because the number it hands out depends
+## on how many other things asked for one first.
+##
+## Kept positive at every step: GDScript ints are signed and `>>` on a negative one
+## shifts ones in from the top, which makes a mixer reproducible and not uniform. The
+## family shipped exactly that in dot-combat, where a shift-and-mask left 23 bits of a
+## 24-bit field and every shotgun pattern was a half-moon on one side of the aim.
+static func deterministic_unit(a: int, b: int) -> float:
+	const MASK := 0x7FFFFFFFFFFFFFFF
+
+	var x := ((a * 0x9E3779B1) ^ (b * 0x85EBCA6B)) & MASK
+	x = (x ^ (x >> 33)) & MASK
+	x = (x * 0xC2B2AE3D) & MASK
+	x = (x ^ (x >> 29)) & MASK
+	x = (x * 0x27D4EB2F) & MASK
+	x = (x ^ (x >> 31)) & MASK
+
+	return float((x >> 10) & 0x1FFFFFFFFFFFFF) / float(0x20000000000000)
+
+
 ## Every child of this node. Empty for a leaf.
 func children() -> Array[DotNpcAiNode]:
 	return []

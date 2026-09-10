@@ -115,6 +115,58 @@ Three things that are not obvious:
 - **`blend` normalises.** Without it an NPC runs faster when two urges happen to agree,
   which is invisible until somebody wonders why fleeing is quicker than chasing.
 
+## Character, and why a tree alone is not an NPC
+
+A behaviour tree decides *what* to do. Two NPCs running the same tree are the same
+NPC — they notice at the same instant, shoot with the same accuracy, and pick the same
+branch every time. That is not a tuning problem, it is a missing layer, and every
+game that shipped good bots has it.
+
+`DotNpcAiCharacter` is Quake III's, read out of
+[`external-study/game-dev/ai/ioq3/code/game/chars.h`](../../external-study/game-dev/ai/ioq3/code/game/chars.h)
+— which was cloned for this addon and, until now, read for nothing. Cut down to what
+is not Quake's: the chat characteristics belong to a game, the weapon-specific aim to
+dot-combat, the item weights to the tree, and grapple and weapon-jumping to a movement
+model this family does not have.
+
+Three of the fields do work rather than describe intent, and they are the reason it is
+a class:
+
+- **`has_reacted`** is the single most important number in the file. A bot that acts on
+  the tick it sees you is not hard, it is inhuman — it is the difference every player
+  can feel and nobody can name. Quake's easiest bots sit near a second and a half; a
+  person is about a quarter of one.
+- **`aim_point`** leads a moving target by `aim_skill` and misses by `aim_accuracy`,
+  as a point on a disc perpendicular to the aim. Partial leading rather than Quake's
+  thresholds, because a bot at 0.5 that leads half as far as it should misses behind a
+  runner — which is what a mediocre player does.
+- **`turn_view`** eases toward the wanted direction and then clamps the step. **A bot
+  with no turn limit snaps its aim in one tick and is unplayable against**; one with
+  only the ease still snaps when the error is large, so both halves are needed.
+
+`nightmare()` deliberately keeps a reaction time above zero and an accuracy below one.
+A bot that reacts instantly and never misses is not a harder opponent, it is a
+different game, and every shooter that shipped one patched it out.
+
+### The randomness is reproducible, and that was not free
+
+Everything that decides by chance here — aim error, `RandomChance`, the weighted
+selector — goes through a hash of two integers rather than `randf`. A server rewinding
+to check a shot, a replay being scrubbed and a second run of the same headless test
+must agree about what an NPC chose, and a global RNG agrees with none of them: what it
+hands out depends on how many other things asked first.
+
+The mixer is kept in the positive half of a signed 64-bit int at every step. GDScript's
+`>>` sign-extends, so one that is allowed to go negative shifts ones in from the top and
+stops being uniform — which is dot-combat's half-moon bug in a different costume, and
+the suite checks all four quadrants rather than the magnitude, because a magnitude check
+passes for a half-moon.
+
+**And give each NPC its own seed.** A preset is one resource; twenty NPCs sharing it
+share a seed, so every one takes the same shot with the same error at the same moment.
+It reads as a firing squad. `with_seed()` is the call, and `DotNpcAiBrain` makes it for
+a brain that did not.
+
 ## NPCs should not collide with each other
 
 Not a rule this addon can enforce, and the reason its own fixture puts NPCs on their own
@@ -127,6 +179,31 @@ about it correct. Rigid capsule-versus-capsule collision between NPCs also deadl
 doorway, which is why the horde games that ship do soft avoidance instead.
 
 So: separation keeps NPCs apart, and the physics keeps them out of the walls.
+
+## The decorators, and the one no shipped NPC can do without
+
+`TimeLimit` is that one. Every action that can return RUNNING can get stuck: a walk to
+a door somebody closed, an attack whose target teleported, a path into a corner.
+Without a limit the NPC does that one thing until the world changes, and "the zombie in
+the corner" is the bug report. With one it fails, the selector above it moves on, and
+nobody files anything. It **aborts** the child rather than dropping it, so whatever the
+action reserved is let go.
+
+`Limit` counts a child that **finished**, not one that started: counting on entry spends
+the allowance on a child abandoned in its first tick, and "once" then means "never" for
+any action long enough to be interrupted. `UntilFail` and `Repeat` both run one
+repetition per tick rather than looping, for the same reason — a loop here never returns
+the first time a child succeeds without suspending, and that hangs the server rather
+than misbehaving.
+
+`DotNpcAiRandomSelector` is the variety a tree with no chance in it cannot have. Three
+zombies that lose sight of a player all walk to the last place they saw them, arrive
+together and stand in a row: not a bug in any of them, and obviously wrong to anybody
+watching. One searching left, one right and one waiting is the whole difference.
+
+**Its choice is made on entry and kept.** Re-rolling a child that returned RUNNING is
+the addon's own rule broken from the one direction where breaking it is tempting — an
+NPC that chose to flank re-decides sixty times a second and goes nowhere.
 
 ## Four bugs the suite found while this was being written
 
@@ -177,7 +254,7 @@ find . -name '*.gd' -not -path './.godot/*' -not -path './addons/dot_core/*' \
 timeout 180 godot --headless --path . res://examples/npc_ai_selftest.tscn
 ```
 
-92 checks. Exits non-zero on failure. The last two run twelve real NPCs through a real
+162 checks. Exits non-zero on failure. The last two run twelve real NPCs through a real
 physics world, which is why the suite takes tens of seconds rather than one.
 
 ## Where a game plugs in
@@ -192,6 +269,12 @@ physics world, which is why the suite takes tens of seconds rather than one.
 | What a squad shares | `DotNpcAiBlackboard.parent` |
 | How a crowd spaces itself | `DotNpcAiBrain.steer_with_spacing`, and the weights in it |
 | How aimless movement looks | `DotNpcAiSteering.wander` |
+| Who an NPC is — how fast it notices, how well it shoots | `DotNpcAiCharacter`, or one of its four presets |
+| How hard the game is | the character, per NPC. There is no difficulty setting |
+| How a chaser closes on a runner | `DotNpcAiSteering.pursue` / `evade` |
+| How an NPC gets round the furniture | `DotNpcAiSteering.avoid` / `is_way_clear` |
+| What happens when an action gets stuck | `DotNpcAiDecorator.TimeLimit` |
+| How an NPC varies what it does | `DotNpcAiRandomSelector`, or `RandomChance` |
 
 ## Things deliberately not here
 
@@ -199,7 +282,13 @@ physics world, which is why the suite takes tens of seconds rather than one.
   real pile of tooling; this family ships pure GDScript with no build step, and
   `describe_lines()` is what a tree is debugged with instead.
 - **No utility scoring.** A third decision model on top of two is a choice nobody needs
-  before they have shipped an NPC.
+  before they have shipped an NPC. `DotNpcAiCharacter` is a table of weights and not a
+  scorer: it says what an NPC is like, and the tree still decides.
+- **No chat, no barks, no personality beyond the numbers.** Quake's characteristics
+  carry a chat file and a typing speed; that is a game's, and dot-chat's if it wants it.
+- **No weapon knowledge in the character.** `aim_point` takes a travel speed and knows
+  nothing else. Quake has per-weapon accuracy tables; dot-combat is where a weapon
+  lives, and naming it here would make this addon fail to parse without it.
 - **No population or pacing.** That is `dot-npc-ai-director`.
 - **No squads beyond a shared blackboard.** Formations, roles and orders are a game's,
   and the shared board is the seam they hang off.

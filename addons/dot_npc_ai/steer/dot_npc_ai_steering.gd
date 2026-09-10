@@ -186,3 +186,157 @@ static func blend(weighted: Array) -> Vector3:
 	sum.y = 0.0
 
 	return sum.normalized() if sum.length() > 0.001 else Vector3.ZERO
+
+
+## Heads for where a moving target is going to be, rather than where it is.
+##
+## [b]Seek at a moving target is a tail chase.[/b] An NPC that steers at a runner's
+## current position approaches from behind for ever and never closes, which reads as an
+## NPC that is slower than it is. Craig Reynolds' pursuit: estimate how long it will
+## take to get there, and aim at where the target will be then.
+##
+## [param own_speed] of zero means "no idea", and the result is a plain seek — which is
+## the right answer, because a chaser with no speed has no time to predict over.
+static func pursue(
+	from: Vector3, target: Vector3, target_velocity: Vector3, own_speed: float
+) -> Vector3:
+	if own_speed <= 0.0:
+		return seek(from, target)
+
+	var distance := from.distance_to(target)
+
+	# The prediction horizon is capped. Extrapolating a target's current velocity three
+	# seconds forward has it running through walls, and the NPC steers confidently at
+	# somewhere nobody will ever be.
+	var ahead := minf(distance / own_speed, 2.0)
+
+	return seek(from, target + target_velocity * ahead)
+
+
+## The mirror: away from where a threat is going to be.
+static func evade(
+	from: Vector3, threat: Vector3, threat_velocity: Vector3, own_speed: float
+) -> Vector3:
+	if own_speed <= 0.0:
+		return flee(from, threat)
+
+	var distance := from.distance_to(threat)
+	var ahead := minf(distance / own_speed, 2.0)
+
+	return flee(from, threat + threat_velocity * ahead)
+
+
+## Deflects [param direction] around anything in the way.
+##
+## [param obstacles] is an array of [code]{position: Vector3, radius: float}[/code] —
+## whatever the game already knows is solid: props, other NPCs, a vehicle. The result
+## is a unit direction, or [param direction] when nothing is close enough to matter.
+##
+## [b]This is not pathfinding and must not be used as it.[/b] It only looks
+## [param look_ahead] metres down the current heading, so it walks an NPC round a
+## barrel and into a dead end — which is the correct division: dot-npc's graph decides
+## the route and this stops the NPC scraping the furniture on the way.
+##
+## The deflection is sideways rather than a stop. Braking in front of an obstacle is
+## what makes a crowd of NPCs pile up at a doorway and never resolve; stepping round it
+## is what makes them flow.
+static func avoid(
+	direction: Vector3,
+	from: Vector3,
+	obstacles: Array,
+	look_ahead: float = 3.0,
+	own_radius: float = 0.5
+) -> Vector3:
+	if direction.length_squared() <= 0.0001 or obstacles.is_empty():
+		return direction
+
+	var heading := direction.normalized()
+	var worst_distance := INF
+	var push := Vector3.ZERO
+
+	for entry in obstacles:
+		if typeof(entry) != TYPE_DICTIONARY:
+			continue
+
+		var row: Dictionary = entry
+		var position: Vector3 = row.get("position", Vector3.ZERO)
+		var radius := float(row.get("radius", 0.5)) + own_radius
+
+		var to_obstacle := position - from
+		to_obstacle.y = 0.0
+
+		var along := to_obstacle.dot(heading)
+
+		# Behind, or too far ahead to be this move's problem.
+		if along <= 0.0 or along > look_ahead + radius:
+			continue
+
+		# Distance from the obstacle's centre to the line being walked. Anything
+		# further than its radius is not in the way, however close it is.
+		var lateral := (to_obstacle - heading * along).length()
+
+		if lateral > radius:
+			continue
+
+		if along >= worst_distance:
+			continue
+
+		worst_distance = along
+
+		var side := (to_obstacle - heading * along)
+
+		if side.length_squared() <= 0.0001:
+			# Dead ahead, exactly. Any side will do and the cross product gives none,
+			# so a fixed one is chosen — and it is chosen from the obstacle's position
+			# rather than at random, so two NPCs approaching the same barrel from the
+			# same side both go the same way instead of dancing.
+			side = heading.cross(Vector3.UP)
+			if side.length_squared() <= 0.0001:
+				side = Vector3.RIGHT
+
+		# Strongest when the obstacle is directly in the path and when it is close.
+		var urgency := (1.0 - lateral / radius) * (1.0 - along / (look_ahead + radius))
+		push = -side.normalized() * urgency
+
+	if push.length_squared() <= 0.0001:
+		return heading
+
+	return (heading + push).normalized()
+
+
+## Whether anything in [param obstacles] blocks the next [param look_ahead] metres.
+##
+## The question [method avoid] answers implicitly, exposed because a tree wants to ask
+## it as a condition — "is my way clear" is a branch, not a steering force.
+static func is_way_clear(
+	direction: Vector3,
+	from: Vector3,
+	obstacles: Array,
+	look_ahead: float = 3.0,
+	own_radius: float = 0.5
+) -> bool:
+	if direction.length_squared() <= 0.0001:
+		return true
+
+	var heading := direction.normalized()
+
+	for entry in obstacles:
+		if typeof(entry) != TYPE_DICTIONARY:
+			continue
+
+		var row: Dictionary = entry
+		var position: Vector3 = row.get("position", Vector3.ZERO)
+		var radius := float(row.get("radius", 0.5)) + own_radius
+
+		var to_obstacle := position - from
+		to_obstacle.y = 0.0
+
+		var along := to_obstacle.dot(heading)
+
+		if along <= 0.0 or along > look_ahead + radius:
+			continue
+
+		if (to_obstacle - heading * along).length() <= radius:
+			return false
+
+	return true

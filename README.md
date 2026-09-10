@@ -72,6 +72,31 @@ A guard followed by an action that never finishes needs a **reactive** sequence,
 guard is asked exactly once. `DotNpcAiSequence.reactive_with()` is that. A plain sequence
 is for steps in order.
 
+## Character
+
+A tree decides what an NPC does. It does not make two of them feel like different
+people — same tree, same NPC: they notice at the same instant and shoot with the same
+accuracy.
+
+```gdscript
+brain.character = DotNpcAiCharacter.hard().with_seed(npc.instance_id)
+
+# In the "shoot at it" branch:
+if not ctx.has_reacted(npc.engaged_at):
+    return DotNpcAiNode.Status.RUNNING       # seen it, not acted on it yet
+
+var at := ctx.character.aim_point(muzzle, target.position, target.velocity, 900.0, shot)
+```
+
+`DotNpcAiCharacter` is Quake III's bot characteristics — reaction time, aim accuracy,
+aim skill, view turn rate, aggression, self preservation, vengefulness, a tendency to
+camp — with four presets from `easy()` to `nightmare()`. **There is no difficulty
+setting**: the character *is* the difficulty, per NPC, so a game can mix them.
+
+Everything random in it is a hash of the character's seed and a number you pass, so the
+same shot always misses the same way — a replay and the server that recorded it agree.
+Give each NPC its own seed, or twenty of them fire one volley.
+
 ## Validating
 
 ```bash
@@ -79,7 +104,7 @@ godot --headless --path . --import
 timeout 180 godot --headless --path . res://examples/npc_ai_selftest.tscn
 ```
 
-92 checks, exits non-zero on failure.
+162 checks, exits non-zero on failure.
 
 ## Licence
 

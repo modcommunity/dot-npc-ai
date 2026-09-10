@@ -47,6 +47,14 @@ var blackboard: DotNpcAiBlackboard = null
 ## What the tree and the machine are handed. Built once and advanced, never rebuilt.
 var context: DotNpcAiContext = null
 
+## Who this NPC is. Handed to the context, where every node can reach it.
+##
+## [b]Give each NPC its own seed.[/b] A preset is one resource, and twenty NPCs sharing
+## it share a seed — so every one of them takes the same shot with the same error at the
+## same moment, which reads as a firing squad. [method DotNpcAiCharacter.with_seed] is
+## the one call that prevents it, and `_npc_ready` makes it for a brain that did not.
+var character: DotNpcAiCharacter = null
+
 ## Which state the machine starts in. Empty to leave it stopped.
 var initial_state: StringName = &""
 
@@ -67,6 +75,15 @@ func _npc_ready() -> void:
 	# ignored on some NPCs and not others.
 	if director != null and director.has_method(&"now"):
 		context.now = float(director.call(&"now"))
+
+	if character != null:
+		# Seeded from the instance unless the game already did it. An NPC whose
+		# character still carries the preset's seed is one of twenty identical
+		# shooters, and the symptom is a volley rather than a fight.
+		if character.seed_value <= 1 and npc != null and npc.instance_id != 0:
+			character = character.with_seed(npc.instance_id)
+
+		context.character = character
 
 	_build()
 
@@ -111,6 +128,16 @@ func _build() -> void:
 
 
 # --- Helpers ------------------------------------------------------------------
+
+## Whether this NPC has had time to react to its current target.
+##
+## The gate every "shoot at it" branch belongs behind. Uses dot-npc's
+## [code]engaged_at[/code], which is when the NPC committed to what it is looking at.
+func has_reacted() -> bool:
+	if character == null or npc == null:
+		return true
+	return character.has_reacted(npc.engaged_at, context.now if context != null else 0.0)
+
 
 ## The nearby positions a separation pass needs, asked of the director.
 ##
