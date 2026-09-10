@@ -131,12 +131,24 @@ func _build() -> void:
 
 ## Whether this NPC has had time to react to its current target.
 ##
-## The gate every "shoot at it" branch belongs behind. Uses dot-npc's
-## [code]engaged_at[/code], which is when the NPC committed to what it is looking at.
+## The gate every "shoot at it" branch belongs behind.
+##
+## [b]Measured from `target_since`, and it used to be `engaged_at`.[/b] Those look like the
+## same thing and are not: `engaged_at` is refreshed on EVERY pass in which the target is
+## perceived — that is what it is for, because it is what a reclaim asks about — so a
+## reaction time measured against it can never elapse for an NPC that can currently see
+## somebody. Which is every NPC that would ever act on one.
+##
+## So this returned **false for ever**, every branch behind it never ran, and nothing
+## errored: a bot that never acts on what it sees looks like a bot that is bad rather than
+## like one that is broken. `DotNpcInstance.target_since` was added to dot-npc for exactly
+## this — it moves when the target CHANGES and not while it is held — and it was found by
+## game-playground putting a brain behind dot-npc's senses and watching a hunter sit in
+## its ALERT state for ever.
 func has_reacted() -> bool:
 	if character == null or npc == null:
 		return true
-	return character.has_reacted(npc.engaged_at, context.now if context != null else 0.0)
+	return character.has_reacted(npc.target_since, context.now if context != null else 0.0)
 
 
 ## The nearby positions a separation pass needs, asked of the director.
@@ -196,7 +208,14 @@ func steer_with_spacing(
 	# are facing different ways, so two that end up one on top of the other are shoved
 	# in two different directions rather than in the same one — which is what makes them
 	# come apart rather than travel as a tower.
-	var right := npc.node.global_transform.basis.x
+	# [b]Derived from `facing()` rather than read off a basis, because an NPC is not
+	# always a 3D one.[/b] `node.global_transform.basis.x` does not exist on a [Node2D],
+	# and a 2D game reaching this line got "Invalid access to property 'global_transform'"
+	# once per NPC per tick. The right of a heading in this addon's plane — see
+	# [member DotNpcInstance.node] — is that heading turned a quarter turn about Y, which
+	# is the same vector for a 3D body and is defined for both.
+	var forward := npc.facing()
+	var right := Vector3(-forward.z, 0.0, forward.x)
 	var apart := DotNpcAiSteering.separate(here, neighbours(spacing), spacing, right)
 
 	# Separation is weighted below seeking, deliberately. Equal weights give a crowd

@@ -1009,6 +1009,41 @@ func _test_character() -> void:
 		"a reaction time of zero reacts at once, for a scripted NPC"
 	)
 
+	# [b]THE gate, against the field it is actually measured from.[/b] `has_reacted()` on
+	# the brain used `DotNpcInstance.engaged_at`, which dot-npc refreshes on EVERY pass in
+	# which the target is perceived — so it was false for ever for any NPC that could
+	# currently see somebody, which is every NPC that would ever act on one. Every branch
+	# behind it never ran and nothing errored: a bot that never acts on what it sees looks
+	# like a bot that is bad rather than like one that is broken.
+	#
+	# `target_since` was added to dot-npc for this. It moves when the target CHANGES and
+	# not while it is held, and the check below is the difference stated as a number.
+	var instance := DotNpcInstance.new()
+	instance.def = DotNpcDef.make(&"x", "res://fixtures/npc_body.tscn")
+	instance.target_id = &"somebody"
+	instance.target_since = 10.0
+	instance.engaged_at = 10.0
+
+	var brain := DotNpcAiBrain.new()
+	brain.npc = instance
+	brain.character = normal
+	brain.blackboard = DotNpcAiBlackboard.new()
+	brain.context = DotNpcAiContext.make(instance, brain, brain.blackboard)
+
+	brain.context.now = 10.1
+	_check(not brain.has_reacted(), "a brain has not reacted immediately")
+
+	# A second of seeing the same person. `engaged_at` moves and `target_since` does not,
+	# which is exactly the situation the old version could never get out of.
+	brain.context.now = 11.0
+	instance.engaged_at = 11.0
+
+	_check(
+		brain.has_reacted(),
+		"and HAS after its reaction time, even though `engaged_at` kept moving",
+		"this is the bug: measured against `engaged_at` it is false for ever"
+	)
+
 	_check(normal.remembers(10.0, 12.0), "a target is remembered for a while")
 	_check(not normal.remembers(10.0, 100.0), "and forgotten eventually")
 

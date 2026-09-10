@@ -254,8 +254,45 @@ find . -name '*.gd' -not -path './.godot/*' -not -path './addons/dot_core/*' \
 timeout 180 godot --headless --path . res://examples/npc_ai_selftest.tscn
 ```
 
-162 checks. Exits non-zero on failure. The last two run twelve real NPCs through a real
+164 checks. Exits non-zero on failure. The last two run twelve real NPCs through a real
 physics world, which is why the suite takes tens of seconds rather than one.
+
+## `has_reacted()` was false for ever, and nothing errored
+
+**The gate every "act on what you see" branch belongs behind never opened.**
+`DotNpcAiBrain.has_reacted()` measured a reaction time from `DotNpcInstance.engaged_at` —
+and dot-npc refreshes that field on **every pass in which the target is perceived**, which
+is what it is for: `engaged_at` answers "is this NPC still busy", which is the question a
+reclaim asks. So `now - engaged_at` was approximately zero on every tick an NPC could see
+somebody, which is every tick an NPC would ever act on one.
+
+Every branch behind the gate never ran. Nothing errored anywhere: **a bot that never acts
+on what it sees looks like a bot that is bad rather than like one that is broken**, which
+is why this survived a suite that tests `DotNpcAiCharacter.has_reacted` directly and
+correctly — the character's arithmetic was right the whole time, and the field it was being
+handed was the wrong one.
+
+`DotNpcInstance.target_since` was added to dot-npc for this. It is set when `target_id`
+**changes** and not while it is held — including the case that looks the same and is not,
+re-perceiving the *same* target after a gap, which is not a new commitment and must not
+restart the clock or an NPC never finishes reacting to somebody who keeps stepping behind
+a pillar.
+
+Found by game-playground putting a `DotNpcAiBrain` behind dot-npc's senses and watching a
+hunter sit in its `ALERT` state for ever. The suite now asserts the difference as a number:
+`engaged_at` moves, `target_since` does not, and `has_reacted()` becomes true.
+
+## The right of a heading, not the right of a basis
+
+`DotNpcAiBrain.steer_with_spacing` used `npc.node.global_transform.basis.x` as the
+tie-break direction for a stack. That property does not exist on a `Node2D`, so a 2D game
+reaching this line got "Invalid access to property 'global_transform'" once per NPC per
+tick — and dot-npc now supports 2D bodies, mapping them onto the XZ plane.
+
+It is derived from `facing()` now: the right of a heading is that heading turned a quarter
+turn about Y, which is the same vector for a 3D body and is defined for both. Nothing else
+in this addon touches a node at all, which is what "only one file in it names dot-npc" was
+always meant to buy.
 
 ## Where a game plugs in
 
