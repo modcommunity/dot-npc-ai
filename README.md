@@ -12,17 +12,13 @@ This asset, along with all the others, was built initially with **Claude Code** 
 I intend on reviewing code, testing, and editing documentation regularly. If you're interested in helping out, please let me know!
 
 ## Behaviour, for NPCs
-**The decision half of [dot-npc](https://github.com/modcommunity/dot-npc).** A behaviour
-tree with real running-state memory, a state machine for the many cases a tree is
-overkill for, a per-NPC blackboard that forgets, and the steering a crowd needs.
+**The decision half of [dot-npc](https://github.com/modcommunity/dot-npc).** A behaviour tree with real running-state memory, a state machine for the many cases a tree is overkill for, a per-NPC blackboard that forgets, and the steering a crowd needs.
 
 Depends on **dot-core** and **dot-npc**.
 
 ## Installing
 
-Copy `addons/dot_npc_ai/`, `addons/dot_npc/` and
-[`dot-core`](https://github.com/modcommunity/dot-core)'s `addons/dot_core/` into your
-project, and enable them in *Project → Project Settings → Plugins*.
+Copy `addons/dot_npc_ai/`, `addons/dot_npc/` and [`dot-core`](https://github.com/modcommunity/dot-core)'s `addons/dot_core/` into your project, and enable them in *Project → Project Settings → Plugins*.
 
 ## Five minutes
 
@@ -58,25 +54,17 @@ func _chase(ctx: DotNpcAiContext) -> int:
 
 ## The rule everybody gets wrong
 
-A node that returned RUNNING must be **resumed** next tick, not restarted. Get it wrong
-and nothing errors: an NPC re-opens the same door sixty times a second, or an attack
-never finishes because its wind-up keeps restarting. Everything looks alive and nothing
-completes.
+A node that returned RUNNING must be **resumed** next tick, not restarted. Get it wrong and nothing errors: an NPC re-opens the same door sixty times a second, or an attack never finishes because its wind-up keeps restarting. Everything looks alive and nothing completes.
 
-`tick()` is not overridable here, and the composites own the resume index, so no node
-can forget.
+`tick()` is not overridable here, and the composites own the resume index, so no node can forget.
 
 ## The other rule, which is this addon's own trap
 
-A guard followed by an action that never finishes needs a **reactive** sequence, or the
-guard is asked exactly once. `DotNpcAiSequence.reactive_with()` is that. A plain sequence
-is for steps in order.
+A guard followed by an action that never finishes needs a **reactive** sequence, or the guard is asked exactly once. `DotNpcAiSequence.reactive_with()` is that. A plain sequence is for steps in order.
 
 ## Character
 
-A tree decides what an NPC does. It does not make two of them feel like different
-people — same tree, same NPC: they notice at the same instant and shoot with the same
-accuracy.
+A tree decides what an NPC does. It does not make two of them feel like different people — same tree, same NPC: they notice at the same instant and shoot with the same accuracy.
 
 ```gdscript
 brain.character = DotNpcAiCharacter.hard().with_seed(npc.instance_id)
@@ -88,14 +76,9 @@ if not ctx.has_reacted(npc.engaged_at):
 var at := ctx.character.aim_point(muzzle, target.position, target.velocity, 900.0, shot)
 ```
 
-`DotNpcAiCharacter` is Quake III's bot characteristics — reaction time, aim accuracy,
-aim skill, view turn rate, aggression, self preservation, vengefulness, a tendency to
-camp — with four presets from `easy()` to `nightmare()`. **There is no difficulty
-setting**: the character *is* the difficulty, per NPC, so a game can mix them.
+`DotNpcAiCharacter` gives an NPC a character rather than a difficulty tier — reaction time, aim accuracy, aim skill, view turn rate, aggression, self preservation, vengefulness, a tendency to camp — with four presets from `easy()` to `nightmare()`. **There is no difficulty setting**: the character *is* the difficulty, per NPC, so a game can mix them.
 
-Everything random in it is a hash of the character's seed and a number you pass, so the
-same shot always misses the same way — a replay and the server that recorded it agree.
-Give each NPC its own seed, or twenty of them fire one volley.
+Everything random in it is a hash of the character's seed and a number you pass, so the same shot always misses the same way — a replay and the server that recorded it agree. Give each NPC its own seed, or twenty of them fire one volley.
 
 ## Validating
 
