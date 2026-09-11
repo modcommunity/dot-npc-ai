@@ -64,7 +64,7 @@ A guard followed by an action that never finishes needs a **reactive** sequence,
 
 ## Character
 
-A tree decides what an NPC does. It does not make two of them feel like different people — same tree, same NPC: they notice at the same instant and shoot with the same accuracy.
+A tree decides what an NPC does. It does not make two of them feel like different people. Same tree, same NPC: they notice at the same instant and shoot with the same accuracy.
 
 ```gdscript
 brain.character = DotNpcAiCharacter.hard().with_seed(npc.instance_id)
@@ -76,9 +76,9 @@ if not ctx.has_reacted(npc.engaged_at):
 var at := ctx.character.aim_point(muzzle, target.position, target.velocity, 900.0, shot)
 ```
 
-`DotNpcAiCharacter` gives an NPC a character rather than a difficulty tier — reaction time, aim accuracy, aim skill, view turn rate, aggression, self preservation, vengefulness, a tendency to camp — with four presets from `easy()` to `nightmare()`. **There is no difficulty setting**: the character *is* the difficulty, per NPC, so a game can mix them.
+`DotNpcAiCharacter` gives an NPC a character rather than a difficulty tier, setting reaction time, aim accuracy, aim skill, view turn rate, aggression, self preservation, vengefulness and a tendency to camp, with four presets from `easy()` to `nightmare()`. **There is no difficulty setting**: the character *is* the difficulty, per NPC, so a game can mix them.
 
-Everything random in it is a hash of the character's seed and a number you pass, so the same shot always misses the same way — a replay and the server that recorded it agree. Give each NPC its own seed, or twenty of them fire one volley.
+Everything random in it is a hash of the character's seed and a number you pass, so the same shot always misses the same way, and a replay and the server that recorded it agree. Give each NPC its own seed, or twenty of them fire one volley.
 
 ## Validating
 

@@ -122,10 +122,10 @@ NPC — they notice at the same instant, shoot with the same accuracy, and pick 
 branch every time. That is not a tuning problem, it is a missing layer, and every
 game that shipped good bots has it.
 
-`DotNpcAiCharacter` is Quake III's, read out of
-[`external-study/game-dev/ai/ioq3/code/game/chars.h`](../../external-study/game-dev/ai/ioq3/code/game/chars.h)
-— which was cloned for this addon and, until now, read for nothing. Cut down to what
-is not Quake's: the chat characteristics belong to a game, the weapon-specific aim to
+`DotNpcAiCharacter` is the late-1990s arena shooters' table, read out of the
+open-sourced original — which was cloned for this addon and, until now, read for
+nothing. Cut down to what is not specific to that engine: the chat characteristics
+belong to a game, the weapon-specific aim to
 dot-combat, the item weights to the tree, and grapple and weapon-jumping to a movement
 model this family does not have.
 
@@ -134,10 +134,10 @@ a class:
 
 - **`has_reacted`** is the single most important number in the file. A bot that acts on
   the tick it sees you is not hard, it is inhuman — it is the difference every player
-  can feel and nobody can name. Quake's easiest bots sit near a second and a half; a
+  can feel and nobody can name. The original's easiest bots sit near a second and a half; a
   person is about a quarter of one.
 - **`aim_point`** leads a moving target by `aim_skill` and misses by `aim_accuracy`,
-  as a point on a disc perpendicular to the aim. Partial leading rather than Quake's
+  as a point on a disc perpendicular to the aim. Partial leading rather than the original's
   thresholds, because a bot at 0.5 that leads half as far as it should misses behind a
   runner — which is what a mediocre player does.
 - **`turn_view`** eases toward the wanted direction and then clamps the step. **A bot
@@ -321,10 +321,10 @@ always meant to buy.
 - **No utility scoring.** A third decision model on top of two is a choice nobody needs
   before they have shipped an NPC. `DotNpcAiCharacter` is a table of weights and not a
   scorer: it says what an NPC is like, and the tree still decides.
-- **No chat, no barks, no personality beyond the numbers.** Quake's characteristics
+- **No chat, no barks, no personality beyond the numbers.** The original's characteristics
   carry a chat file and a typing speed; that is a game's, and dot-chat's if it wants it.
 - **No weapon knowledge in the character.** `aim_point` takes a travel speed and knows
-  nothing else. Quake has per-weapon accuracy tables; dot-combat is where a weapon
+  nothing else. The original has per-weapon accuracy tables; dot-combat is where a weapon
   lives, and naming it here would make this addon fail to parse without it.
 - **No population or pacing.** That is `dot-npc-ai-director`.
 - **No squads beyond a shared blackboard.** Formations, roles and orders are a game's,

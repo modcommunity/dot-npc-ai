@@ -7,12 +7,12 @@ extends Resource
 ##
 ## [b]This is the part that makes a bot feel like a person, and it is not the decision
 ## engine.[/b] A behaviour tree decides [i]what[/i] to do; two NPCs running the same
-## tree with the same tree are the same NPC. Quake III's bots — still the ones people
-## compare against, twenty-five years on — got their character from a table of
-## characteristics per bot: reaction time, aim accuracy, aim skill, aggression, self
-## preservation, vengefulness, a tendency to camp. This is that table, read out of
-## [code]external-study/game-dev/ai/ioq3/code/game/chars.h[/code] and cut down to the
-## parts that are not Quake's.
+## tree with the same tree are the same NPC. The late-1990s arena shooters' bots —
+## still the ones people compare against, twenty-five years on — got their character
+## from a table of characteristics per bot: reaction time, aim accuracy, aim skill,
+## aggression, self preservation, vengefulness, a tendency to camp. This is that table,
+## read out of the open-sourced original and cut down to the parts that are not
+## specific to that engine.
 ##
 ## What was left out and why:
 ##
@@ -20,7 +20,7 @@ extends Resource
 ## chat characteristics    a game's, and dot-chat's if it wants them
 ## weapon-specific aim     dot-combat owns weapons; this has no idea what one is
 ## item weights            goal selection is the tree's, not a table's
-## grapple, weapon jumping Quake's movement, not a movement model this family has
+## grapple, weapon jumping that engine's movement, not a movement model this family has
 ## [/codeblock]
 ##
 ## [b]Three of these do work rather than describe intent[/b], and they are the reason
@@ -69,13 +69,13 @@ const MASK := 0x7FFFFFFFFFFFFFFF
 ##
 ## [b]The single most important number in the file.[/b] A bot that reacts on the tick
 ## it sees you is not hard, it is inhuman — and it is the difference every player can
-## feel and nobody can name. A person is about a quarter of a second; Quake's easiest
-## bots are set near a second and a half.
+## feel and nobody can name. A person is about a quarter of a second; the original's
+## easiest bots are set near a second and a half.
 @export_range(0.0, 5.0, 0.01) var reaction_time: float = 0.35
 
 ## Multiplies the definition's sight range. 1.0 is "as far as the definition says".
 ##
-## Quake calls it alertness and uses it for view distance. Scaling rather than
+## The original table calls it alertness and uses it for view distance. Scaling rather than
 ## replacing, because how far a kind of NPC can see is a property of the kind and how
 ## attentive this one is, is a property of the character.
 @export_range(0.1, 2.0, 0.01) var alertness: float = 1.0
@@ -96,15 +96,15 @@ const MASK := 0x7FFFFFFFFFFFFFFF
 ##
 ## 0 aims where the target is, which never hits anything crossing. 1 aims where it
 ## will be. Between the two is the interesting range and it is where every bot worth
-## playing against sits: Quake's own thresholds are linear leading above 0.4 and exact
-## leading above 0.8.
+## playing against sits: the original's own thresholds are linear leading above 0.4 and
+## exact leading above 0.8.
 @export_range(0.0, 1.0, 0.01) var aim_skill: float = 0.5
 
 ## Fastest the view may turn, in degrees per second.
 ##
 ## [b]A bot with no limit here snaps its aim in one tick and is unplayable against.[/b]
-## Quake's equivalent is a maximum view change per frame; degrees per second is the
-## same idea at a tick rate that is not fixed.
+## The original's equivalent is a maximum view change per frame; degrees per second is
+## the same idea at a tick rate that is not fixed.
 @export_range(30.0, 3600.0, 10.0) var view_turn_deg: float = 360.0
 
 ## Fraction of the remaining aim error corrected per second, before the turn limit.
@@ -266,7 +266,7 @@ func aim_point(
 	if travel_speed > 0.0 and aim_skill > 0.0:
 		var distance := from.distance_to(target_position)
 		var flight := distance / travel_speed
-		# Partial leading rather than a threshold. Quake switches leading on above a
+		# Partial leading rather than a threshold. The original switches leading on above a
 		# skill of 0.4 and exact leading above 0.8; a fraction is the same curve
 		# without two cliffs in it, and a bot at 0.5 that leads half as far as it
 		# should misses behind a runner, which is what a mediocre player does.
