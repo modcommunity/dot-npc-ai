@@ -91,4 +91,4 @@ timeout 180 godot --headless --path . res://examples/npc_ai_selftest.tscn
 
 ## Licence
 
-MIT.
+MIT. See [LICENSE](LICENSE).
