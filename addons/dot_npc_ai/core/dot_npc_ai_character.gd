@@ -36,7 +36,8 @@ extends Resource
 ## var at := character.aim_point(muzzle, enemy.position, enemy.velocity, 900.0, shot)
 ## [/codeblock]
 
-const CHANNEL := "npc.ai"
+# No log channel: a Resource of numbers and the pure functions over them, asked every
+# think by every NPC. validate()/from_dictionary() return a DotResult for the loader.
 
 ## The widest an inaccurate shot may miss by, in degrees, at
 ## [member aim_accuracy] 0.
