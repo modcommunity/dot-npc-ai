@@ -17,7 +17,7 @@ extends Node
 const BODY := "res://fixtures/npc_body.tscn"
 const BRAIN := "res://fixtures/zombie_brain.gd"
 
-const CHECKS := 164
+const CHECKS := 167
 
 ## Sections entered against sections that ran to their last line, and against this. A
 ## runtime error inside a section aborts that function and nothing says so; a section that
@@ -1097,6 +1097,9 @@ func _test_character() -> void:
 		"this is the bug: measured against `engaged_at` it is false for ever"
 	)
 
+	# Built by hand, so let go of by hand: the context points back at the brain.
+	brain.unbind()
+
 	_check(normal.remembers(10.0, 12.0), "a target is remembered for a while")
 	_check(not normal.remembers(10.0, 100.0), "and forgotten eventually")
 
@@ -1339,7 +1342,22 @@ func _test_brain_on_a_real_npc() -> void:
 		"having fallen through to the tree's other branch"
 	)
 
-	spawner.queue_free()
+	# [b]And the spawner going away takes the brain with it.[/b] The context points back at
+	# the brain and the brain holds the context, and a world is torn down by freeing its
+	# nodes, never by removing its NPCs — so this is the path that leaked, in every game
+	# with hunters, at every exit. Freed rather than queued, so PREDELETE runs now.
+	var brain_ref: WeakRef = weakref(brain)
+	var context_ref: WeakRef = weakref(brain.context)
+	var npc_ref: WeakRef = weakref(npc)
+	brain = null
+	npc = null
+	_world.remove_child(spawner)
+	spawner.free()
+
+	_check(brain_ref.get_ref() == null, "a freed spawner's brains are freed with it",
+		"DotNpcAiBrain._npc_unbound did not break the context <-> brain cycle")
+	_check(context_ref.get_ref() == null, "and their contexts")
+	_check(npc_ref.get_ref() == null, "and the NPCs they were driving")
 	_done()
 
 

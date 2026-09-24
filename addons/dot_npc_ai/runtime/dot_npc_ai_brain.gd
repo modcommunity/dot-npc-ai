@@ -120,6 +120,20 @@ func _npc_died(_by: StringName) -> void:
 		tree.abort(context)
 
 
+## The context points back at this brain and at the NPC, and this brain holds the
+## context: a cycle [method DotNpcBrain.unbind] exists to break. The tree and the
+## machine go too, because a node that cached the context would be a second one.
+func _npc_unbound() -> void:
+	if context != null:
+		context.brain = null
+		context.agent = null
+
+	context = null
+	tree = null
+	machine = null
+	blackboard = null
+
+
 # --- Subclass interface -------------------------------------------------------
 
 ## Build [member tree] and/or [member machine] here. Called once, on spawn.

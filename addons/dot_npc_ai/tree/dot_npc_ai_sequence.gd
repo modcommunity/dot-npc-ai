@@ -62,6 +62,9 @@ func _tick(ctx: DotNpcAiContext) -> Status:
 static func reactive_with(
 	p_name: StringName, p_children: Array[DotNpcAiNode]
 ) -> DotNpcAiSequence:
-	var sequence := DotNpcAiSequence.new(p_name, p_children)
+	# Not this class's own name. A script that names itself in an expression, loaded after
+	# its base, cuts Godot 4.7.2's exit teardown short and leaks every script loaded before
+	# it. See docs/gdscript-hazards.md, "A script that names itself".
+	var sequence := new(p_name, p_children)
 	sequence.reactive = true
 	return sequence
