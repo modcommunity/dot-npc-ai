@@ -19,9 +19,17 @@ const BRAIN := "res://fixtures/zombie_brain.gd"
 
 const CHECKS := 164
 
+## Sections entered against sections that ran to their last line, and against this. A
+## runtime error inside a section aborts that function and nothing says so; a section that
+## bailed out early after a failed guard is counted as not finished on purpose. The CHECKS
+## total is the other half — see docs/testing.md.
+const SECTIONS := 21
+
 var _passed := 0
 var _failed := 0
 var _failures := PackedStringArray()
+var _entered := 0
+var _completed := 0
 
 var _world: Node3D = null
 
@@ -66,6 +74,13 @@ func _run() -> void:
 	for line in _failures:
 		print("  FAIL  %s" % line)
 
+	print("%d of %d sections ran to their last line" % [_completed, _entered])
+	if _entered != SECTIONS or _completed != _entered:
+		print("ERROR: %d sections entered and %d completed, %d expected. One aborted or was skipped." % [
+			_entered, _completed, SECTIONS
+		])
+		get_tree().quit(1)
+		return
 	# The total the section counter cannot be. A runtime error inside a section aborts
 	# that function, and the counter is satisfied because the section had already
 	# announced itself. See docs/testing.md.
@@ -76,6 +91,16 @@ func _run() -> void:
 		get_tree().quit(1)
 		return
 	get_tree().quit(1 if _failed > 0 else 0)
+
+
+func _section(title: String) -> void:
+	_entered += 1
+	print(title)
+
+
+## A section reached its last line. See [constant SECTIONS].
+func _done() -> void:
+	_completed += 1
 
 
 func _check(ok: bool, what: String, detail: String = "") -> void:
@@ -116,7 +141,7 @@ func _counting(ticks: int, log_into: Array, tag: String) -> DotNpcAiLeaf.Action:
 # --- Memory -------------------------------------------------------------------
 
 func _test_blackboard() -> void:
-	print("blackboard")
+	_section("blackboard")
 
 	var board := DotNpcAiBlackboard.new()
 	board.put(&"target", Vector3(1, 2, 3), 0.0)
@@ -162,10 +187,11 @@ func _test_blackboard() -> void:
 		"and how long ago something was written can be asked",
 		"%.1f" % board.age_of(&"seen", 10.0)
 	)
+	_done()
 
 
 func _test_context() -> void:
-	print("context")
+	_section("context")
 
 	var ctx := _context()
 	ctx.advance(0.5)
@@ -174,12 +200,13 @@ func _test_context() -> void:
 	_check(absf(ctx.now - 1.0) < 0.0001, "the clock advances", "%.2f" % ctx.now)
 	_check(ctx.tick_index == 2, "and counts ticks")
 	_check(ctx.delta == 0.5, "and holds this tick's delta")
+	_done()
 
 
 # --- The tree -----------------------------------------------------------------
 
 func _test_leaves() -> void:
-	print("leaves")
+	_section("leaves")
 
 	var ctx := _context()
 
@@ -208,10 +235,11 @@ func _test_leaves() -> void:
 		"and one that returns nothing succeeds",
 		"the commonest thing to write; failing by default would be wrong for all of it"
 	)
+	_done()
 
 
 func _test_sequence_resume() -> void:
-	print("a sequence resumes")
+	_section("a sequence resumes")
 
 	var ctx := _context()
 	var log: Array = []
@@ -248,10 +276,11 @@ func _test_sequence_resume() -> void:
 
 	_check(failing.tick(ctx) == DotNpcAiNode.Status.FAILURE, "a failed child fails the sequence")
 	_check(log.count("unreachable") == 0, "and nothing after it runs")
+	_done()
 
 
 func _test_reactive_sequence() -> void:
-	print("a reactive sequence re-checks its guard")
+	_section("a reactive sequence re-checks its guard")
 
 	var ctx := _context()
 	var log: Array = []
@@ -305,10 +334,11 @@ func _test_reactive_sequence() -> void:
 		"and the action is TOLD it was abandoned",
 		"it is the ordinary path here, not the exceptional one"
 	)
+	_done()
 
 
 func _test_selector_priority() -> void:
-	print("a selector picks")
+	_section("a selector picks")
 
 	var ctx := _context()
 	var log: Array = []
@@ -334,10 +364,11 @@ func _test_selector_priority() -> void:
 		all_fail.tick(ctx) == DotNpcAiNode.Status.FAILURE,
 		"and fails only when every child has"
 	)
+	_done()
 
 
 func _test_reactive_selector() -> void:
-	print("a reactive selector interrupts")
+	_section("a reactive selector interrupts")
 
 	var ctx := _context()
 	var log: Array = []
@@ -377,10 +408,11 @@ func _test_reactive_selector() -> void:
 	var strict := DotNpcAiSelector.new(&"strict", [urgent, wander])
 	strict.reactive = false
 	_check(not strict.reactive, "and a game that wants the other behaviour can have it")
+	_done()
 
 
 func _test_parallel() -> void:
-	print("parallel")
+	_section("parallel")
 
 	var ctx := _context()
 	var log: Array = []
@@ -409,10 +441,11 @@ func _test_parallel() -> void:
 		"but every child was ticked before it decided",
 		"returning early would stop the half that was working"
 	)
+	_done()
 
 
 func _test_decorators() -> void:
-	print("decorators")
+	_section("decorators")
 
 	var ctx := _context()
 
@@ -452,10 +485,11 @@ func _test_decorators() -> void:
 	_check(wait.tick(ctx) == DotNpcAiNode.Status.RUNNING, "a wait waits")
 	ctx.advance(2.0)
 	_check(wait.tick(ctx) == DotNpcAiNode.Status.SUCCESS, "and then succeeds")
+	_done()
 
 
 func _test_repeat_does_not_hang() -> void:
-	print("repeat")
+	_section("repeat")
 
 	var ctx := _context()
 	var runs: Array = []
@@ -482,12 +516,13 @@ func _test_repeat_does_not_hang() -> void:
 	_check(status == DotNpcAiNode.Status.SUCCESS, "it finishes")
 	_check(runs.size() == 3, "after exactly three repetitions", "%d" % runs.size())
 	_check(ticks == 3, "one per tick, rather than looping inside one", "%d ticks" % ticks)
+	_done()
 
 
 # --- The machine --------------------------------------------------------------
 
 func _test_machine() -> void:
-	print("state machine")
+	_section("state machine")
 
 	var ctx := _context()
 	var alerted := {"on": false}
@@ -540,10 +575,11 @@ func _test_machine() -> void:
 		not machine.go_to(ctx, &"nowhere").ok,
 		"a state that does not exist is refused"
 	)
+	_done()
 
 
 func _test_machine_thrash() -> void:
-	print("state machine: two states fighting")
+	_section("state machine: two states fighting")
 
 	var ctx := _context()
 	var machine := DotNpcAiMachine.new()
@@ -570,12 +606,13 @@ func _test_machine_thrash() -> void:
 		"and no more than the cap is taken",
 		"%d" % machine.transition_count
 	)
+	_done()
 
 
 # --- Steering -----------------------------------------------------------------
 
 func _test_steering() -> void:
-	print("steering")
+	_section("steering")
 
 	var seek := DotNpcAiSteering.seek(Vector3.ZERO, Vector3(10, 5, 0))
 	_check(seek.is_equal_approx(Vector3.RIGHT), "seek points at the goal")
@@ -634,10 +671,11 @@ func _test_steering() -> void:
 	])
 	_check(absf(blended.length() - 1.0) < 0.001, "a blend is normalised",
 		"or an NPC runs faster when two urges happen to agree")
+	_done()
 
 
 func _test_wander() -> void:
-	print("wander")
+	_section("wander")
 
 	var angle := 0.0
 	var angles: Array[float] = []
@@ -672,6 +710,7 @@ func _test_wander() -> void:
 		"and it is deterministic, so a suite can replay a horde",
 		"a global RNG makes one NPC's wandering depend on how many wandered first"
 	)
+	_done()
 
 
 # --- Against a real NPC -------------------------------------------------------
@@ -679,7 +718,7 @@ func _test_wander() -> void:
 # --- Pursuit, evasion and getting round things --------------------------------
 
 func _test_pursuit_and_avoidance() -> void:
-	print("pursuit and avoidance")
+	_section("pursuit and avoidance")
 
 	var from := Vector3.ZERO
 	var target := Vector3(10, 0, 0)
@@ -755,12 +794,13 @@ func _test_pursuit_and_avoidance() -> void:
 	var first := DotNpcAiSteering.avoid(heading, from, barrel, 5.0, 0.5)
 	var second := DotNpcAiSteering.avoid(heading, from, barrel, 5.0, 0.5)
 	_check(first == second, "the deflection is the same every time it is asked")
+	_done()
 
 
 # --- The rest of the decorators -----------------------------------------------
 
 func _test_more_decorators() -> void:
-	print("decorators: limits and chance")
+	_section("decorators: limits and chance")
 
 	var ctx := _context()
 
@@ -873,10 +913,11 @@ func _test_more_decorators() -> void:
 	probe.advance(0.1)
 	_check(never.tick(probe) == DotNpcAiNode.Status.FAILURE, "a chance of zero never runs")
 	_check(always.tick(probe) == DotNpcAiNode.Status.SUCCESS, "and one of one always does")
+	_done()
 
 
 func _test_random_selector() -> void:
-	print("random selector")
+	_section("random selector")
 
 	var picks := {}
 	var children: Array[DotNpcAiNode] = []
@@ -981,12 +1022,13 @@ func _test_random_selector() -> void:
 		negative.weight_of(0) == 0.0,
 		"a negative weight is clamped, not left to break the total the roll is scaled to"
 	)
+	_done()
 
 
 # --- Character ----------------------------------------------------------------
 
 func _test_character() -> void:
-	print("character")
+	_section("character")
 
 	var normal := DotNpcAiCharacter.normal()
 	_check(normal.validate().ok, "the normal preset validates")
@@ -1080,10 +1122,11 @@ func _test_character() -> void:
 	var seeded := normal.with_seed(4242)
 	_check(seeded.seed_value == 4242, "a character can be reseeded")
 	_check(normal.seed_value != 4242, "without touching the preset it came from")
+	_done()
 
 
 func _test_character_aim() -> void:
-	print("character aim")
+	_section("character aim")
 
 	var perfect := DotNpcAiCharacter.new()
 	perfect.aim_accuracy = 1.0
@@ -1212,6 +1255,7 @@ func _test_character_aim() -> void:
 
 	throttled.fire_throttle = 0.0
 	_check(not throttled.should_fire(1), "and an empty one never does")
+	_done()
 
 
 func _catalogue() -> DotNpcCatalogue:
@@ -1248,7 +1292,7 @@ func _spawner() -> DotNpcSpawner:
 
 
 func _test_brain_on_a_real_npc() -> void:
-	print("a brain on a real NPC")
+	_section("a brain on a real NPC")
 
 	var spawner := _spawner()
 	var npc := spawner.spawn(&"zombie", Vector3.ZERO)
@@ -1296,10 +1340,11 @@ func _test_brain_on_a_real_npc() -> void:
 	)
 
 	spawner.queue_free()
+	_done()
 
 
 func _test_crowd_separation() -> void:
-	print("a crowd at one door")
+	_section("a crowd at one door")
 
 	var spawner := _spawner()
 	var goal := Vector3(0, 0, -30)
@@ -1377,3 +1422,4 @@ func _test_crowd_separation() -> void:
 
 	floor_body.queue_free()
 	spawner.queue_free()
+	_done()
