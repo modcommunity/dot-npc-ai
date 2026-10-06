@@ -1,0 +1,69 @@
+class_name DotNpcAiSquads
+extends RefCounted
+
+## Every squad in one world, by name. Put on a director so its brains can find theirs.
+##
+## A brain joins the squad its definition names (`"squad"` in its meta) or the one its game
+## assigns, through this. Metadata on the director rather than [DotRegistry] for the reason
+## [DotNpcAiSkill] gives: two servers in one process must not share squads.
+
+const META := &"dot_npc_ai_squads"
+
+var _squads: Dictionary = {}
+
+
+## The squad called [param squad_name], made if it does not exist yet.
+func squad(squad_name: StringName) -> DotNpcAiSquad:
+	var found: DotNpcAiSquad = _squads.get(squad_name)
+
+	if found == null:
+		found = DotNpcAiSquad.new(squad_name)
+		_squads[squad_name] = found
+
+	return found
+
+
+func find(squad_name: StringName) -> DotNpcAiSquad:
+	return _squads.get(squad_name)
+
+
+## Drops squads nobody is in. A squad name per wave is a name per wave for ever otherwise.
+func prune() -> int:
+	var dropped := 0
+
+	for key in _squads.keys():
+		if (_squads[key] as DotNpcAiSquad).is_empty():
+			_squads.erase(key)
+			dropped += 1
+
+	return dropped
+
+
+func names() -> PackedStringArray:
+	var out := PackedStringArray()
+
+	for key in _squads.keys():
+		out.append(String(key))
+
+	return out
+
+
+func attach(director: Node) -> void:
+	if director != null:
+		director.set_meta(META, self)
+
+
+static func of(director: Object) -> DotNpcAiSquads:
+	if director == null or not director.has_meta(META):
+		return null
+
+	return director.get_meta(META) as DotNpcAiSquads
+
+
+func describe_lines() -> PackedStringArray:
+	var out := PackedStringArray()
+
+	for key in _squads.keys():
+		out.append_array((_squads[key] as DotNpcAiSquad).describe_lines())
+
+	return out

@@ -167,6 +167,81 @@ share a seed, so every one takes the same shot with the same error at the same m
 It reads as a firing squad. `with_seed()` is the call, and `DotNpcAiBrain` makes it for
 a brain that did not.
 
+## The server's skill, which is not a difficulty setting
+
+The user-facing ask was "let the server make NPCs smarter or quicker to react", as cvars. The trap is the obvious implementation: a global difficulty that **replaces** each NPC's numbers makes every monster the same monster at a different speed, and the characteristics table exists so that a brute and a stalker are wrong to fight the same way. Two game brains carried a paragraph saying exactly that.
+
+So `DotNpcAiSkill` **moves** each character toward `easy()` or `nightmare()` by a fraction (`npc_skill`, -1..1 or a level name), multiplies reaction times separately (`npc_reaction_scale`, because "too smart" and "too quick" are different complaints), and floors them (`npc_reaction_min`, 0.05 s, for the reason nightmare keeps one above zero). Four things about it are not obvious:
+
+- **Ability moves; personality does not.** Reaction, alertness, memory, aim and turning are how good an NPC is. Aggression, self-preservation and vengefulness are who it is, and a coward that turned brave on a hard server would be a different game.
+- **Only in the direction asked for.** A plain lerp toward nightmare makes a kind authored *better* than nightmare at something worse at it as skill goes up — "hard mode made the stalkers slower", for the one kind that was already best. The suite pins it.
+- **Applied to what was authored, not to the last result.** The brain keeps `base_character` and re-applies on every `revision` change, or turning skill up and back down would not come back.
+- **On the director as node metadata, not in `DotRegistry`.** The registry is per process, and two servers in one process — which every game's suite runs — must not share a difficulty. A brain that spawned before the attach finds it on its next tick.
+
+`bind_cvars` takes a module's `add_cvar` as a Callable and duck-types the cvar it returns, because dot-server is not a dependency of this addon. It reads the value back after registering: a value set from argv before the module loaded is already in the cvar, and a binding that only listened for changes would leave the server saying `hard` while its NPCs are normal. That read-back is a check in the suite, against a fake cvar that starts pre-set.
+
+## Alertness was decoration
+
+Until the skill work, `alertness` was declared, documented ("multiplies the definition's sight range"), carried by every preset — and read by nothing. dot-npc's senses only knew the definition. `DotNpcInstance.sight_scale` was added to dot-npc for it and the brain writes it from the character on every change, so `npc_skill` reaches how far an NPC sees and not only how fast it reacts. Same for `memory_time`: two game brains authored it per kind ("the brute is impossible to shake: twenty seconds") and nothing ever read it.
+
+## Memory, search, and being hurt
+
+The search-the-last-known-spot branch was written three times — game-playground's wave brain and hunter, and this addon's own zombie fixture — each with its own hard-coded lifetime (6, 8, 10 s), none of them the character's. It is the brain's now:
+
+- **The last known position is kept every tick there is a target, including through dot-npc's commitment grace.** During the grace the senses hold the target and `target_position()` answers where they are — dot-npc's existing "follow them round the corner". A memory that stopped at the last true sighting would send the NPC *back* to that corner when the grace ran out, which reads as it changing its mind.
+- **A memory of zero is no memory.** The blackboard reads a lifetime of 0 as "never expires", so a forgetful character written straight through would hold a grudge for ever. game-playground's hunter had the neighbouring bug for real: `put(&"last_seen", pos, 8.0)` passed 8.0 as *now* and no lifetime, so its memory never expired.
+- **`search()` sweeps, then forgets.** It walks to the spot, faces either side of its arrival heading for `memory_time * 0.4` (clamped 1-6 s), then returns SUCCESS and erases the memory so the branch does not restart. Stopping dead on arrival — what the wave brain did — reads as the NPC never having looked.
+- **Being hurt is handled in `damaged`, not `_npc_damaged`.** Every game brain overrides the hook and none calls `super`. With no target the NPC remembers where the hurt came from and turns to it, so the search branch goes to look; chasing somebody else, it switches by a `vengefulness` roll from its own seed. dot-npc's senses then keep the switch only if the attacker is actually perceived, so a vengeful NPC cannot be led away from a target it can see by somebody it cannot. The suite's first version of that check put the attacker 50% further away; the NPC had walked toward the nearer one, the 0.6 switch ratio took the vengeance back on the next pass, and that was the senses being right.
+
+## The tactical layer
+
+The bar was "at least as good as the tactical single-player shooters' NPCs", and those are a handful of systems working together rather than a better tree. Each now has a counterpart here, and each does something theirs did not:
+
+| Theirs | Here | And past it |
+| --- | --- | --- |
+| Conditions set by sensing, read as schedule interrupts | `DotNpcAiConditions` on the context, filled by the brain before anything runs; `DotNpcAiDecorator.Interrupt` | `became()` for "react once", so a flinch is not interrupted by the hit it is reacting to |
+| An enemy memory, several enemies, last known positions | `DotNpcAiMemory`, with how each fact was learned (sight, sound, squad, damage) | A smoothed velocity per enemy, and `search()` goes where a lost enemy was HEADING, by `tactics`. Turning two corners no longer escapes a smart NPC |
+| A world sound list: combat, danger, player | `DotNpcAiSounds`, emitted by the game, heard once per sound, scaled by alertness | A danger carries its reach separately from how far it is heard, so a grenade heard across a room is fled only by those inside its blast |
+| Squads with attack slots | `DotNpcAiSquad`: slots, shared sightings, a leader by lowest id | Waiters share the ring out (`spread_bearings`) in the order they stand, and a smart squad's arc centres on the enemy's back — "behind" being the side away from whoever is hitting it |
+| Cover from hint nodes | `find_cover` over dot-npc's generated cover spots | Claimed per squad, one NPC per spot |
+| A maximum yaw speed | `DotNpcAiBrain.face` goes through the character's `turn_view` | Limited from the facing at the start of the think, so a steer and a look in one tick do not turn twice as far |
+
+`DotNpcAiCharacter.tactics` is the one new trait, and the server's skill moves it: whether an NPC calls out to its squad (below 0.2 it does not), how far ahead it predicts a lost enemy, and how hard it works round to a player's back. Easy NPCs are brave idiots; nightmare ones are why a player checks behind them.
+
+**Everything is automatic once the director carries it.** `DotNpcAiSquads` and `DotNpcAiSounds` go on the spawner as metadata (two servers in one process must not share either), a definition names its squad and attack capacity in its meta (`"squad"`, `"attackers"`), and the brain senses, remembers, hears and reports with no game code. What a game writes is the tree: `claim_attack_slot()` as the attack branch's guard, `surround()` beside it, `search()` after the fight, `flee_danger()` first. game-arena, game-g2gfast and game-playground's waves are all built that way now; the arena also turns every rocket in the air into a danger with its splash as the reach, and every player's shot into combat noise owned by the shooter.
+
+Five things found building it, all of which a passing suite had missed or could not see:
+
+- **dot-npc's `face()` turned every 3D NPC's back to where it was going.** `look_at(position - direction)` points -Z — which `facing()` reads — away from the direction, so the sight cone the senses test pointed behind a chasing monster, and arena's 60-to-100-degree monsters lost the player they were running at. Clients never showed it because `DotNpcNetSync.yaw_of` was half a turn out the other way and the two cancelled on screen. Found by this addon's turn-rate check, which asked how far an NPC turned in one tick and was told 180 degrees. Both are fixed together and dot-npc's suite asserts the round trip.
+- **`turn_view` could not turn round.** For a target directly behind it rotated about `from × UP` — a horizontal axis — so the bot tipped its head back instead of turning; its own comment said that case had been fixed. Turning round is about UP.
+- **`surround` aimed one tick of angle ahead.** The point was a few centimetres away, inside the arrival distance, so a flanker arrived, stopped, and never got round.
+- **The first surround heaped.** Every waiter walked at "directly behind", they arrived at one point and halted forty centimetres apart, and every check passed — "on the ring" was true of all three. `tools/trace_surround.gd` plus `tools/plot_trace.py` (standard library only) draw it top-down, and the picture is what showed it; the suite now also asserts the waiters are apart. **Any change to how a squad moves wants that picture looked at**, for the reason the family's notes give for interfaces: motion is a thing no assertion reaches.
+- **The vengeance check put the attacker 50% further away** than the NPC's current target; the NPC had walked toward the nearer one, dot-npc's 0.6 switch ratio took the vengeance back on the next pass, and that was the senses being right.
+
+## Shooting, roles, and learning the map
+
+The second round past the tactical shooters' baseline, and the two things a game's NPCs most obviously lacked: they could not fight at range, and they knew nothing about the map they were on.
+
+**Shooting is gates, then aim.** `ready_to_fire` is every gate a person has, in the order they bite: the target is SEEN this tick (not merely remembered), the reaction time has elapsed, the NPC is FACING it within a tolerance — so the turn rate decides how fast it can bring a weapon round, which is the single biggest thing that separates a fair bot from an aimbot — the lane is clear of its own squad, and the character's fire throttle lets the shot through. `aim_solution` then leads the target by the velocity the NPC's own memory measured, not the target's true one: a bot handed the real velocity leads a player who has just juked perfectly, which is the tell; one leading from its last few sightings is a beat behind, which is what a person is.
+
+**The friendly-fire lane is a tactics question.** Below 0.2 an NPC does not check it and shoots its own squad in the back, which is what a dull horde does and what makes it a danger to itself.
+
+**Roles are attack slots with names.** `claim_role(role, capacity)` per target, released together when the target changes (`DotNpcAiSquad.release_suffixed`). A tree that asks in order — break off if hurt, flank if nobody is, otherwise suppress — gets a squad that splits its work with nobody giving an order. game-arena's gunner is exactly that tree, and `tools/trace_surround.gd` with `TRACE_KIND=gunner` draws it: one gunner swings wide round to the far side of the player, the other holds its band and strafes.
+
+**`hold_range` strafes.** A gunner standing still at range is a target; the drift flips on a period from its own seed, so twenty of them do not all slide the same way.
+
+**`DotNpcAiHeatmap` is what the game has learned of where players go** — cells of a few metres, a half-life of ten minutes so it is a picture of recent play, channels by name (`traffic`, `deaths`, or a game's own), `flow_at` for which way the traffic comes from, and JSON in and out. `patrol_hot` walks an NPC's hottest cells near it and waits at each facing the flow — an ambush — for as long as its `camper` says, which is the first thing that ever read `camper`. Below 0.3 tactics an NPC does not know the map and wanders, which is half of what makes the easy preset easy.
+
+**`DotNpcAiHeatKeeper` keeps one per map** — sample on an interval, save on an interval and on the way out, swap on a map change — because every game would write those forty lines and the one that forgets to save before swapping trains map B on map A's corridors. Two things it does that are not obvious, both from building it:
+
+- **Re-adopting the map it already holds reloads without saving first.** A game turns persistence on after the map was adopted with it off (arena's horde is built before its server module loads); saving there would overwrite the file with the few seconds learned since, and a server would forget every map on every restart.
+- **Persistence is the server's decision, never the default.** Every suite builds the game, and one that saved would have each run's bots train the next run's NPCs — a suite whose results depend on how many times it has run. game-arena's and game-playground's server modules turn it on; their suites leave nothing in `user://`, and playground's `dedicated`, which loads the module, clears the directory before and after.
+
+Found building it:
+
+- **A shot made by hand traces nothing.** dot-combat traces `pellets`, which a weapon fills and `DotShot.scatter()` builds; arena's first `npc_shoot` resolved, counted and hit nobody. The suite asks "did it hit a player", which is the only question that catches it.
+- **dot-combat relocates a shot to where the server believes the shooter is.** The first check fired from a made-up point six metres off and hit the floor at the gunner's feet: the anti-cheat working, and a test of the wrong thing.
+
 ## NPCs should not collide with each other
 
 Not a rule this addon can enforce, and the reason its own fixture puts NPCs on their own
@@ -254,7 +329,7 @@ find . -name '*.gd' -not -path './.godot/*' -not -path './addons/dot_core/*' \
 timeout 180 godot --headless --path . res://examples/npc_ai_selftest.tscn
 ```
 
-164 checks. Exits non-zero on failure. The last two run twelve real NPCs through a real
+313 checks. Exits non-zero on failure. The last two run twelve real NPCs through a real
 physics world, which is why the suite takes tens of seconds rather than one.
 
 ## `has_reacted()` was false for ever, and nothing errored
@@ -306,29 +381,38 @@ always meant to buy.
 | What a squad shares | `DotNpcAiBlackboard.parent` |
 | How a crowd spaces itself | `DotNpcAiBrain.steer_with_spacing`, and the weights in it |
 | How aimless movement looks | `DotNpcAiSteering.wander` |
-| Who an NPC is — how fast it notices, how well it shoots | `DotNpcAiCharacter`, or one of its four presets |
-| How hard the game is | the character, per NPC. There is no difficulty setting |
+| Who an NPC is — how fast it notices, how well it shoots | `DotNpcAiCharacter`, one of its four presets, or `"skill"` in the definition's meta |
+| How hard the game is | the character, per NPC; a server moves all of them with `DotNpcAiSkill` (`npc_skill`, `npc_reaction_scale`, `npc_reaction_min`) |
+| Where a lost target is looked for, and for how long | `DotNpcAiBrain.search`, and the character's `memory_time` |
+| What being hurt by somebody unseen does | `DotNpcAiBrain.damaged` → `_hurt_by`, and the character's `vengefulness` |
 | How a chaser closes on a runner | `DotNpcAiSteering.pursue` / `evade` |
 | How an NPC gets round the furniture | `DotNpcAiSteering.avoid` / `is_way_clear` |
 | What happens when an action gets stuck | `DotNpcAiDecorator.TimeLimit` |
 | How an NPC varies what it does | `DotNpcAiRandomSelector`, or `RandomChance` |
+| What ends a long action | `DotNpcAiDecorator.Interrupt` over `DotNpcAiConditions`; a game's own conditions from `GAME_FIRST` |
+| What an NPC hears | `DotNpcAiSounds.emit` from the game, attached to the director |
+| Who fights together, and how many attack at once | `"squad"` and `"attackers"` in the definition's meta, `DotNpcAiSquads` on the director |
+| Where the ones not attacking stand | `DotNpcAiBrain.surround`, `flank_lead`, the character's `tactics` |
+| Where an NPC hides | `DotNpcAiBrain.find_cover` / `take_cover`, over dot-npc's cover spots |
+| How fast an NPC turns | the character's `view_turn_deg` and `view_factor`, through `face` |
+| Whether and where it shoots | `ready_to_fire`, `aim_solution`, `fire_lane_clear`; the game resolves the shot |
+| How a squad splits the work | `claim_role` with `ROLE_ATTACK`, `ROLE_SUPPRESS`, `ROLE_FLANK` or a game's own |
+| How a ranged NPC keeps its distance | `hold_range` |
+| What the NPCs learn of a map | `DotNpcAiHeatmap`, kept per map by `DotNpcAiHeatKeeper`; patrolled with `patrol_hot` |
 
 ## Things deliberately not here
 
 - **No editor.** A behaviour tree built in a graph editor is a real convenience and a
   real pile of tooling; this family ships pure GDScript with no build step, and
   `describe_lines()` is what a tree is debugged with instead.
-- **No utility scoring.** A third decision model on top of two is a choice nobody needs
-  before they have shipped an NPC. `DotNpcAiCharacter` is a table of weights and not a
-  scorer: it says what an NPC is like, and the tree still decides.
+- **No utility scoring of decisions.** A third decision model on top of two is a choice nobody needs before they have shipped an NPC. `DotNpcAiCharacter` is a table of weights and not a scorer: it says what an NPC is like, and the tree still decides. Positions are the exception — `DotNpcAiTactics.best_of` scores places to stand, because "where" is always a trade and a trade written as an if-chain stands in the open.
 - **No chat, no barks, no personality beyond the numbers.** The original's characteristics
   carry a chat file and a typing speed; that is a game's, and dot-chat's if it wants it.
 - **No weapon knowledge in the character.** `aim_point` takes a travel speed and knows
   nothing else. The original has per-weapon accuracy tables; dot-combat is where a weapon
   lives, and naming it here would make this addon fail to parse without it.
 - **No population or pacing.** That is `dot-npc-ai-director`.
-- **No squads beyond a shared blackboard.** Formations, roles and orders are a game's,
-  and the shared board is the seam they hang off.
+- **No formations or orders.** A squad here shares what it sees, hands out named roles, shares a ring and claims cover; the roles are claimed, never assigned, so there is no leader issuing a plan — anything that is one ("you two hold the door") is a game's, and roles are the seam it hangs off.
 - **No animation.** `DotNpcNetSync.State` is what a client picks one with.
 - **No pathfinding.** dot-npc owns that; this steers between the waypoints it gives.
 - **No threading.** `DotNpcAiParallel` names the fact that every child gets a tick, not

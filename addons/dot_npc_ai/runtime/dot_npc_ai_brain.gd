@@ -55,16 +55,127 @@ var context: DotNpcAiContext = null
 ## the one call that prevents it, and `_npc_ready` makes it for a brain that did not.
 var character: DotNpcAiCharacter = null
 
+## The character as the game made it, before the server's [member skill] moved it.
+##
+## [member character] is the one in force and the one everything reads. This is kept so a
+## change to the server's skill is applied to what was authored rather than to what the
+## LAST change produced — or turning skill up and back down would not come back.
+var base_character: DotNpcAiCharacter = null
+
+## The server's adjustment, or null for "as authored". Found on the director — see
+## [method DotNpcAiSkill.attach] — or assigned by a game that keeps its own.
+var skill: DotNpcAiSkill = null
+
 ## Which state the machine starts in. Empty to leave it stopped.
 var initial_state: StringName = &""
 
 ## What the tree returned on the last tick. For a console command.
 var last_status: DotNpcAiNode.Status = DotNpcAiNode.Status.FAILURE
 
+## When a search reached where it was going and started looking round.
+const KEY_SEARCH_ARRIVED := &"ai.search_arrived"
+
+## Which remembered enemy a search is after, so a change of quarry restarts it.
+const KEY_SEARCH_ID := &"ai.search_id"
+
+## The heading it arrived on, which the look-round sweeps either side of.
+const KEY_SEARCH_HEADING := &"ai.search_heading"
+
+## How close to the last known position counts as having got there, horizontally.
+var search_arrive_distance: float = 1.5
+
+## The memory id a fight heard but not attributed — an explosion, an ally's brawl — is
+## kept under. Somewhere worth going to look, and nobody in particular.
+const NOISE := &"#noise"
+
+## Below this [method tactics] an NPC does not call out to its squad, and does not check
+## its fire lane for squadmates.
+const CALLOUT_TACTICS := 0.2
+
+## Below this [method tactics] an NPC does not know the map: [method patrol_hot] fails.
+const PATROL_TACTICS := 0.3
+
+## The squad role every melee or ranged attack branch asks for. See [method claim_role].
+const ROLE_ATTACK := &"attack"
+const ROLE_SUPPRESS := &"suppress"
+const ROLE_FLANK := &"flank"
+
+const KEY_PATROL_GOAL := &"ai.patrol_goal"
+const KEY_PATROL_ARRIVED := &"ai.patrol_arrived"
+const KEY_PATROL_VISITS := &"ai.patrol_visits"
+
+## What this NPC knows about its enemies — several, how it knows, and where they went.
+var memory: DotNpcAiMemory = null
+
+## The world's sounds, found on the director. Null hears nothing.
+var sounds: DotNpcAiSounds = null
+
+## Where players go on this map, found on the director. Null patrols nothing.
+var heatmap: DotNpcAiHeatmap = null
+
+## Shots this NPC has taken. The seed of each shot's error, so the same shot misses the
+## same way on a replay and two shots never miss identically.
+var shots_fired: int = 0
+
+## This NPC's squad, or null to fight alone. Joined after `_build` from [member squad_name].
+var squad: DotNpcAiSquad = null
+
+## The squad to join. From `"squad"` in the definition's meta unless a game sets it in
+## `_build`; empty fights alone. Needs a [DotNpcAiSquads] on the director.
+var squad_name: StringName = &""
+
+## How many of a squad may attack one target at once. `"attackers"` in the meta.
+var attack_capacity: int = 2
+
+## Fraction of health lost inside [member heavy_damage_window] that is HEAVY_DAMAGE.
+var heavy_damage_fraction: float = 0.25
+
+var heavy_damage_window: float = 1.5
+
+## At or below this fraction of health, LOW_HEALTH.
+var low_health_fraction: float = 0.3
+
+## Seconds between two reports to the squad about a target still in sight.
+var report_interval: float = 0.5
+
+## How far round toward an enemy's back [method surround] aims, in radians, at tactics 1.
+## The NPC circles at walking pace; this is how far ahead of it the point it walks at is.
+var flank_lead: float = 0.8
+
+var _had_target: bool = false
+var _last_target: StringName = &""
+var _pending_damage: float = 0.0
+var _damage_log: Array = []
+var _last_heard_id: int = 0
+var _last_report: float = -INF
+var _informed_pending: bool = false
+var _danger_at: Vector3 = Vector3.ZERO
+var _danger_extent: float = 0.0
+var _danger_until: float = -INF
+var _facing_at_tick: Vector3 = Vector3.ZERO
+
+## [member skill]'s revision when [member character] was last worked out. -1 for never.
+var _skill_revision: int = -1
+
+## The character [method _refresh_character] last produced, so a game that assigns a new
+## one mid-life is noticed rather than silently overwritten on the next skill change.
+var _applied: DotNpcAiCharacter = null
+
 
 func _npc_ready() -> void:
 	blackboard = DotNpcAiBlackboard.new()
 	context = DotNpcAiContext.make(npc, self, blackboard)
+	memory = DotNpcAiMemory.new()
+	sounds = DotNpcAiSounds.of(director)
+	heatmap = DotNpcAiHeatmap.of(director)
+	attack_capacity = int(tune(&"attackers", float(attack_capacity)))
+
+	# The definition's squad only when it names one. A game that chose the squad before
+	# binding — game-playground puts each player's NPCs in their own — must not have it
+	# wiped by a definition that says nothing, which is what this line used to do.
+	var named_squad := tune_string(&"squad", "")
+	if named_squad != "":
+		squad_name = StringName(named_squad)
 
 	# The world's clock, not zero.
 	#
@@ -76,16 +187,32 @@ func _npc_ready() -> void:
 	if director != null and director.has_method(&"now"):
 		context.now = float(director.call(&"now"))
 
-	if character != null:
-		# Seeded from the instance unless the game already did it. An NPC whose
-		# character still carries the preset's seed is one of twenty identical
-		# shooters, and the symptom is a volley rather than a fight.
-		if character.seed_value <= 1 and npc != null and npc.instance_id != 0:
-			character = character.with_seed(npc.instance_id)
+	# A character named in the catalogue, for a brain that did not choose one. Opt-in: a
+	# brain with no character and no `skill` in its definition is a legitimate NPC with no
+	# reaction time, and turning that into a normal one would change every such game.
+	if character == null:
+		var named := tune_string(&"skill", "")
 
-		context.character = character
+		if named != "":
+			character = DotNpcAiCharacter.preset(named)
+
+	skill = skill if skill != null else DotNpcAiSkill.of(director)
+	_refresh_character()
 
 	_build()
+
+	# Again, for a brain that assigned its character in `_build` — which is too late for
+	# the seeding above and used to leave `ctx.character` null for the whole tree. Noticed
+	# here rather than documented as a trap: two games' brains carry a paragraph about it.
+	_refresh_character()
+
+	# After `_build`, so a game may choose the squad there.
+	if squad_name != &"":
+		var squads := DotNpcAiSquads.of(director)
+
+		if squads != null:
+			squad = squads.squad(squad_name)
+			squad.join(self)
 
 	if machine != null and initial_state != &"":
 		var started := machine.go_to(context, initial_state)
@@ -103,11 +230,27 @@ func _npc_think(delta: float) -> void:
 
 	context.advance(delta)
 
+	_refresh_character()
+	_sense()
+
+	if npc != null:
+		_facing_at_tick = npc.facing()
+
 	if tree != null:
 		last_status = tree.tick(context)
 
 	if machine != null:
 		machine.tick(context)
+
+
+## Being hurt is information, and it arrives here whatever the subclass does with it.
+##
+## [b]Overrides `damaged` rather than `_npc_damaged`, deliberately.[/b] Every game brain
+## overrides the hook and none of them calls `super`, so behaviour put there would be lost
+## in exactly the brains that need it.
+func damaged(amount: float, by: StringName) -> void:
+	_hurt_by(by, amount)
+	super(amount, by)
 
 
 ## A brain being told its NPC has been abandoned mid-action.
@@ -118,6 +261,11 @@ func _npc_think(delta: float) -> void:
 func _npc_died(_by: StringName) -> void:
 	if tree != null and tree.is_running:
 		tree.abort(context)
+
+	# Its attack slot is the next NPC's. A squad whose slots belonged to the dead would
+	# stand in a ring round a player for ever.
+	if squad != null:
+		squad.leave(self)
 
 
 ## The context points back at this brain and at the NPC, and this brain holds the
@@ -132,6 +280,15 @@ func _npc_unbound() -> void:
 	tree = null
 	machine = null
 	blackboard = null
+	skill = null
+	memory = null
+	sounds = null
+	heatmap = null
+
+	if squad != null:
+		squad.leave(self)
+
+	squad = null
 
 
 # --- Subclass interface -------------------------------------------------------
@@ -163,6 +320,991 @@ func has_reacted() -> bool:
 	if character == null or npc == null:
 		return true
 	return character.has_reacted(npc.target_since, context.now if context != null else 0.0)
+
+
+## The character in force, worked out again only when something changed.
+##
+## Three things can change it: the game assigned a different one, the server's
+## [member skill] moved, or a skill was attached to the director after this NPC spawned.
+## Each costs one comparison a tick when nothing did.
+func _refresh_character() -> void:
+	if skill == null and director != null:
+		skill = DotNpcAiSkill.of(director)
+
+	if character != _applied:
+		# The game assigned one, at ready or since. It is the new authored character.
+		base_character = _seeded(character)
+		_skill_revision = -1
+
+	var revision := skill.revision if skill != null else 0
+
+	if _skill_revision == revision and character == _applied:
+		return
+
+	_skill_revision = revision
+	character = skill.apply(base_character) if skill != null else base_character
+	_applied = character
+
+	if context != null:
+		context.character = character
+
+	# Alertness is how far THIS one sees, and dot-npc's senses are what look. Until this
+	# line nothing read the field at all: every character's alertness was decoration.
+	if npc != null:
+		npc.sight_scale = character.alertness if character != null else 1.0
+
+
+## [param from] with this NPC's own seed, unless the game already gave it one.
+##
+## An NPC whose character still carries the preset's seed is one of twenty identical
+## shooters, and the symptom is a volley rather than a fight.
+func _seeded(from: DotNpcAiCharacter) -> DotNpcAiCharacter:
+	if from == null:
+		return null
+
+	if from.seed_value <= 1 and npc != null and npc.instance_id != 0:
+		return from.with_seed(npc.instance_id)
+
+	return from
+
+
+## How long this NPC keeps believing it knows where somebody is. From its character.
+func memory_time() -> float:
+	return character.memory_time if character != null else 5.0
+
+
+## How much this NPC thinks ahead and works with others. From its character; 0.5 without.
+func tactics() -> float:
+	return character.tactics if character != null else 0.5
+
+
+# --- Sensing ------------------------------------------------------------------
+
+## Everything this NPC notices this tick, before anything decides.
+##
+## In this order, because each step reads the last: the target (dot-npc's senses have run),
+## damage taken since the last think, what can be heard, and what the squad said. The
+## conditions it sets are what every guard and [DotNpcAiDecorator.Interrupt] reads.
+func _sense() -> void:
+	var c := context.conditions
+	c.begin_tick()
+
+	if npc == null or not npc.is_alive() or memory == null:
+		return
+
+	memory.forget_after = memory_time()
+
+	var now := context.now
+	var has_target := npc.has_target()
+
+	if has_target:
+		var at := target_position(Vector3.INF)
+
+		# Perceived on this pass, as against held through dot-npc's commitment grace. The
+		# senses stamp `target_seen_at` with the director's clock on every pass that sees it.
+		var seen := absf(npc.target_seen_at - _world_now()) < 0.0001
+
+		if at != Vector3.INF:
+			# Tracked through the grace as well as when seen. During the grace the senses
+			# hand the brain the target's position — dot-npc's "follow them round the
+			# corner" — and a memory that stopped at the last true sighting would send the
+			# NPC BACK to that corner when the grace ran out, which reads as it changing its
+			# mind. Remembering what it was acting on means the search starts where the chase
+			# ended, and the velocity it carries is the one the target left with.
+			var entry := memory.sighted(npc.target_id, at, now)
+
+			if seen:
+				_report(entry, now)
+
+		c.set_flag(DotNpcAiConditions.SEE_ENEMY if seen else DotNpcAiConditions.ENEMY_OCCLUDED)
+
+		if npc.target_id != _last_target:
+			c.set_flag(DotNpcAiConditions.NEW_ENEMY)
+			# Every role on the old one is let go, or a squad's slots fill with NPCs that
+			# are attacking somebody else.
+			_release_roles_on(_last_target)
+			# A new target is a new fight; a search half done for the old one is over.
+			_end_search()
+	elif _had_target:
+		c.set_flag(DotNpcAiConditions.LOST_ENEMY)
+		_release_roles_on(_last_target)
+
+	_had_target = has_target
+	_last_target = npc.target_id if has_target else &""
+
+	_sense_damage(c)
+
+	if npc.def != null and npc.health_fraction() <= low_health_fraction:
+		c.set_flag(DotNpcAiConditions.LOW_HEALTH)
+
+	_listen(c)
+
+	if _informed_pending:
+		c.set_flag(DotNpcAiConditions.SQUAD_INFORMED)
+		_informed_pending = false
+
+	if has_target and holds_attack_slot():
+		c.set_flag(DotNpcAiConditions.HAS_ATTACK_SLOT)
+
+
+## LIGHT_DAMAGE for any hurt since the last think; HEAVY_DAMAGE when the hurt inside the
+## window adds up to [member heavy_damage_fraction] of its health.
+##
+## A window rather than one hit, because "heavy" is about how fast health is going: three
+## quick hits of ten percent are a reason to break off, and one hit of ten percent a minute
+## for three minutes is not.
+func _sense_damage(c: DotNpcAiConditions) -> void:
+	var now := context.now
+
+	if _pending_damage > 0.0:
+		c.set_flag(DotNpcAiConditions.LIGHT_DAMAGE)
+		_damage_log.append([now, _pending_damage])
+		_pending_damage = 0.0
+
+	var total := 0.0
+	var kept: Array = []
+
+	for hit in _damage_log:
+		if now - float(hit[0]) <= heavy_damage_window:
+			kept.append(hit)
+			total += float(hit[1])
+
+	_damage_log = kept
+
+	var max_health := npc.def.max_health if npc.def != null else 0.0
+
+	if max_health > 0.0 and total >= max_health * heavy_damage_fraction:
+		c.set_flag(DotNpcAiConditions.HEAVY_DAMAGE)
+
+
+## Hears what the world's [DotNpcAiSounds] has said since the last think.
+func _listen(c: DotNpcAiConditions) -> void:
+	if sounds == null:
+		sounds = DotNpcAiSounds.of(director)
+
+		if sounds == null:
+			return
+
+	var world_now := _world_now()
+	var hearing := character.alertness if character != null else 1.0
+	var here := npc.position()
+	var turn_to := Vector3.INF
+
+	for sound in sounds.audible(here, world_now, hearing, _last_heard_id):
+		match sound.kind:
+			DotNpcAiSounds.Kind.DANGER:
+				# The nearest danger wins. A reflex rather than a decision, so there is no
+				# reaction gate: an NPC that stood still for its reaction time with a
+				# grenade at its feet would read as one that had not noticed.
+				if _danger_until < world_now or here.distance_to(sound.position) < here.distance_to(_danger_at):
+					_danger_at = sound.position
+					_danger_extent = sound.extent
+					_danger_until = sound.expires_at
+
+			DotNpcAiSounds.Kind.COMBAT:
+				c.set_flag(DotNpcAiConditions.HEAR_COMBAT)
+				# Attributed to its maker when the maker is somebody this NPC could fight;
+				# otherwise it is a fight somewhere — an ally's, an explosion — and that is
+				# still worth going to see.
+				var who := sound.owner if _is_enemy(sound.owner) else NOISE
+				memory.heard(who, sound.position, context.now)
+				turn_to = sound.position
+
+			DotNpcAiSounds.Kind.MOVEMENT:
+				if _is_enemy(sound.owner):
+					c.set_flag(DotNpcAiConditions.HEAR_ENEMY)
+					memory.heard(sound.owner, sound.position, context.now)
+					turn_to = sound.position
+
+	_last_heard_id = sounds.last_id()
+
+	if in_danger():
+		c.set_flag(DotNpcAiConditions.HEAR_DANGER)
+
+	# Turns toward what it heard when it has nothing better to look at, so its eyes — the
+	# sight cone dot-npc checks — can find what its ears did.
+	if turn_to != Vector3.INF and not npc.has_target():
+		face(turn_to - here)
+
+
+## Whether [param id] is somebody this NPC could fight: a candidate its director knows.
+func _is_enemy(id: StringName) -> bool:
+	if id == &"" or director == null or not director.has_method(&"candidate_position"):
+		return false
+
+	var found: Variant = director.call(&"candidate_position", id, Vector3.INF)
+	return found is Vector3 and found != Vector3.INF
+
+
+## Tells the squad what it sees, at most every [member report_interval].
+##
+## [b]Only an NPC with some tactics calls out.[/b] Below [constant CALLOUT_TACTICS] it fights
+## alone — the easy preset's dull monster that never tells anybody anything, which is half
+## of what makes it easy.
+func _report(entry: DotNpcAiMemory.Entry, now: float) -> void:
+	if squad == null or tactics() < CALLOUT_TACTICS:
+		return
+
+	if now - _last_report < report_interval:
+		return
+
+	_last_report = now
+	squad.report(self, entry.id, entry.position, entry.velocity, now)
+
+
+## Called by [DotNpcAiSquad.report] when a squadmate saw something. True when it was news.
+func _squad_report(
+	enemy: StringName, position: Vector3, velocity: Vector3, seen_at: float
+) -> bool:
+	if memory == null or context == null:
+		return false
+
+	var news := memory.informed(enemy, position, velocity, seen_at, context.now)
+
+	if news:
+		# A flag rather than the condition itself: this is called during ANOTHER member's
+		# think, which may come after this one's, and the condition would be wiped by the
+		# next `begin_tick` before anything read it.
+		_informed_pending = true
+
+	return news
+
+
+# --- What it knows ------------------------------------------------------------
+
+## Where its current target — or, with none, the most recent thing it knows about — was
+## last known to be. [constant Vector3.INF] when there is nothing.
+##
+## Infinity rather than zero for "nothing", because zero is the middle of the map: an NPC
+## that went looking at the origin would read as a pathfinding bug.
+func last_known_position() -> Vector3:
+	var entry := _search_entry()
+	return entry.position if entry != null else Vector3.INF
+
+
+## Whether there is somewhere worth looking. The guard for a search branch.
+func remembers_target() -> bool:
+	return _search_entry() != null
+
+
+## Forgets what a search would go after, and the search itself.
+func forget_target_position() -> void:
+	var entry := _search_entry()
+
+	if entry != null:
+		memory.forget(entry.id)
+
+	_end_search()
+
+
+func _search_entry() -> DotNpcAiMemory.Entry:
+	if memory == null or context == null:
+		return null
+
+	if npc != null and npc.has_target():
+		var current := memory.get_entry(npc.target_id, context.now)
+
+		if current != null:
+			return current
+
+	return memory.freshest(context.now)
+
+
+func _end_search() -> void:
+	if blackboard == null:
+		return
+
+	blackboard.erase(KEY_SEARCH_ARRIVED)
+	blackboard.erase(KEY_SEARCH_HEADING)
+	blackboard.erase(KEY_SEARCH_ID)
+
+
+# --- Leaves a game can use ----------------------------------------------------
+
+## Goes to where a lost enemy probably is, then looks round. A ready-made leaf.
+##
+## RUNNING while walking or looking, SUCCESS once it has looked and found nothing — that
+## enemy is forgotten then, so the branch moves on to the next thing remembered or fails —
+## and FAILURE when there was nothing to look for. Put it between the fight and the idle
+## branch of a reactive selector, and a target perceived during the search takes over on
+## the same tick.
+##
+## [b]Where it PROBABLY is, by [method tactics].[/b] [DotNpcAiMemory] keeps the velocity the
+## enemy left with; an NPC with tactics 0 walks to the spot it lost them, and one with
+## tactics 1 walks to where they were heading. The first is what players have escaped from
+## for twenty-five years by turning two corners. The second is not.
+##
+## The look-round sweeps either side of the heading it arrived on, for longer the better
+## its memory is.
+func search(ctx: DotNpcAiContext, speed: float, spacing: float = 1.6) -> DotNpcAiNode.Status:
+	if npc == null or not npc.is_alive() or blackboard == null or memory == null:
+		return DotNpcAiNode.Status.FAILURE
+
+	var entry := _search_entry()
+
+	if entry == null:
+		_end_search()
+		return DotNpcAiNode.Status.FAILURE
+
+	if blackboard.get_name(KEY_SEARCH_ID, ctx.now, &"") != entry.id:
+		# A different thing to look for than last tick: start again.
+		_end_search()
+		blackboard.put(KEY_SEARCH_ID, entry.id, ctx.now)
+
+	if not blackboard.has(KEY_SEARCH_ARRIVED, ctx.now):
+		var goal := memory.predict_entry(entry, ctx.now, tactics())
+		var flat := goal - npc.position()
+		flat.y = 0.0
+
+		if flat.length() > search_arrive_distance:
+			steer_with_spacing(goal, speed, ctx.delta, spacing)
+			return DotNpcAiNode.Status.RUNNING
+
+		var facing := npc.facing()
+		blackboard.put(KEY_SEARCH_ARRIVED, ctx.now, ctx.now)
+		blackboard.put(KEY_SEARCH_HEADING, atan2(facing.z, facing.x), ctx.now)
+
+	var looked := ctx.now - blackboard.get_float(KEY_SEARCH_ARRIVED, ctx.now, ctx.now)
+
+	if looked >= look_round_time():
+		memory.forget(entry.id)
+		_end_search()
+		halt()
+		return DotNpcAiNode.Status.SUCCESS
+
+	halt()
+
+	# A sweep of about seventy degrees each way. Facing, not moving: the sight cone is what
+	# finds somebody, and the cone points where the NPC faces.
+	var heading := blackboard.get_float(KEY_SEARCH_HEADING, ctx.now, 0.0)
+	face(DotNpcAiSteering.angle_to_direction(heading + sin(looked * 2.2) * 1.2))
+
+	return DotNpcAiNode.Status.RUNNING
+
+
+## How long a search looks round once it arrives, from the character's memory.
+func look_round_time() -> float:
+	return clampf(memory_time() * 0.4, 1.0, 6.0)
+
+
+## Asks the squad for one of the places attacking the current target. True when it has one.
+##
+## [b]The question every attack branch should ask first.[/b] With no squad it is always
+## yes. [param capacity] defaults to [member attack_capacity], which a catalogue sets with
+## `"attackers"`. The slot is kept until the target changes, is lost, or this NPC dies.
+func claim_attack_slot(capacity: int = -1) -> bool:
+	return claim_role(ROLE_ATTACK, capacity if capacity >= 0 else attack_capacity)
+
+
+func holds_attack_slot() -> bool:
+	return holds_role(ROLE_ATTACK)
+
+
+func release_attack_slot() -> void:
+	release_role(ROLE_ATTACK)
+
+
+func _attack_slot() -> StringName:
+	return _role_slot(ROLE_ATTACK, npc.target_id)
+
+
+## Asks the squad for one of [param capacity] places in [param role] against the current
+## target. With no squad, always yes. Kept until the target changes or this NPC dies.
+##
+## [b]Roles are attack slots with names.[/b] A squad that may have two attacking, one
+## suppressing and one flanking is four questions with one answer each, and a tree that
+## asks them in order — flank if nobody is, suppress if nobody is, otherwise attack or wait
+## — gets a squad that splits its work without anybody giving an order.
+func claim_role(role: StringName, capacity: int) -> bool:
+	if npc == null or not npc.has_target():
+		return false
+
+	if squad == null:
+		return true
+
+	return squad.claim(_role_slot(role, npc.target_id), self, capacity)
+
+
+func holds_role(role: StringName) -> bool:
+	if npc == null or not npc.has_target():
+		return false
+
+	return squad == null or squad.holds(_role_slot(role, npc.target_id), self)
+
+
+func release_role(role: StringName) -> void:
+	if squad != null:
+		squad.release_prefixed(String(role) + ":", self)
+
+
+func _role_slot(role: StringName, target: StringName) -> StringName:
+	return StringName(String(role) + ":" + String(target))
+
+
+func _release_roles_on(target: StringName) -> void:
+	if squad != null and target != &"":
+		squad.release_suffixed(":" + String(target), self)
+
+
+## Holds a place on a ring round the target, sharing the ring out with the rest of the
+## squad that is waiting. The leaf for a squad member that has not got an attack slot.
+##
+## [b]Shared out, not each for itself.[/b] Every waiter on the same target gets its own
+## bearing across an arc ([method DotNpcAiTactics.spread_bearings]), so they stand apart
+## rather than arriving at one point and stacking. Where the arc is centred is
+## [method tactics]: round where the squad already is for a dull one, and round the enemy's
+## back — the side away from whoever is hitting it, which is where it is looking — for a
+## smart one. A player who turns to face one has turned their back on the attacker.
+##
+## RUNNING while there is a target; FAILURE when there is none.
+func surround(
+	ctx: DotNpcAiContext, speed: float, radius: float = 4.0, spacing: float = 1.6
+) -> DotNpcAiNode.Status:
+	if npc == null or not npc.is_alive() or not npc.has_target():
+		return DotNpcAiNode.Status.FAILURE
+
+	var center := target_position(Vector3.INF)
+
+	if center == Vector3.INF:
+		return DotNpcAiNode.Status.FAILURE
+
+	var here := npc.position()
+	var group := _waiting_with()
+	var positions: Array = []
+
+	for member in group:
+		positions.append((member as DotNpcAiBrain).npc.position())
+
+	var focus := DotNpcAiTactics.mean_bearing(center, positions)
+	var facing := _enemy_facing(center)
+
+	if facing.length_squared() > 0.0001:
+		var behind := atan2(-facing.z, -facing.x)
+		focus = lerp_angle(focus, behind, tactics())
+
+	# One place per spacing of arc, measured at the ring's radius.
+	var step := clampf(spacing * 1.4 / maxf(radius, 0.5), 0.2, PI)
+	var bearings := DotNpcAiTactics.spread_bearings(center, focus, positions, step)
+	var mine := group.find(self)
+	var bearing := bearings[mine] if mine >= 0 else focus
+	var point := DotNpcAiTactics.ring_toward(center, here, radius, bearing, flank_lead)
+
+	var flat := point - here
+	flat.y = 0.0
+
+	if flat.length() < 0.6:
+		# There — but still apart. A waiter that halts on its spot is one that stays wherever
+		# the squad's last shove left it, which is how a ring becomes a heap.
+		var forward := npc.facing()
+		var right := Vector3(-forward.z, 0.0, forward.x)
+		var apart := DotNpcAiSteering.separate(here, neighbours(spacing), spacing, right)
+
+		if apart.length() > 0.05:
+			steer_toward(here + apart * 2.0, speed * 0.5, ctx.delta)
+		else:
+			halt()
+
+		face(center - here)
+		return DotNpcAiNode.Status.RUNNING
+
+	steer_with_spacing(point, speed, ctx.delta, spacing)
+	return DotNpcAiNode.Status.RUNNING
+
+
+## The squad members waiting on the same target as this one, this one included, in a fixed
+## order. Alone, or with no squad, just this one.
+func _waiting_with() -> Array:
+	var out: Array = [self]
+
+	if squad == null or not npc.has_target():
+		return out
+
+	var slot := _attack_slot()
+	out.clear()
+
+	for member in squad.members():
+		var other := member as DotNpcAiBrain
+
+		if other == null or other.npc == null or not other.npc.is_alive():
+			continue
+
+		if other.npc.target_id != npc.target_id or squad.holds(slot, other):
+			continue
+
+		out.append(other)
+
+	if not out.has(self):
+		out.append(self)
+
+	return out
+
+
+## Which way the enemy at [param center] is probably looking.
+##
+## At its nearest attacker if a squadmate holds the attack — a player being hit looks at
+## what is hitting them — or along its velocity, or nowhere.
+func _enemy_facing(center: Vector3) -> Vector3:
+	if squad != null and npc.has_target():
+		var slot := _attack_slot()
+		var nearest := Vector3.INF
+
+		for member in squad.members():
+			var other := member as DotNpcAiBrain
+
+			if other == null or other == self or other.npc == null or not other.npc.is_alive():
+				continue
+
+			if not squad.holds(slot, other):
+				continue
+
+			var at := other.npc.position()
+
+			if nearest == Vector3.INF or at.distance_squared_to(center) < nearest.distance_squared_to(center):
+				nearest = at
+
+		if nearest != Vector3.INF:
+			var look := nearest - center
+			look.y = 0.0
+
+			if look.length_squared() > 0.0001:
+				return look.normalized()
+
+	var entry := memory.get_entry(npc.target_id, context.now) if memory != null and npc.has_target() else null
+
+	if entry != null:
+		var moving := Vector3(entry.velocity.x, 0.0, entry.velocity.z)
+
+		if moving.length() > 0.5:
+			return moving.normalized()
+
+	return Vector3.ZERO
+
+
+## The best cover from [param threat] within [param max_distance], or [constant Vector3.INF].
+##
+## From the navigation data dot-npc's generator marked — a cover spot records which way its
+## wall is, so "covered from there" needs no raycast — scored by how well it covers against
+## how far away it is. [b]Claimed in the squad[/b], one NPC per spot: two NPCs that each pick
+## the best cover pick the same one, and the second stands in the open next to the first.
+func find_cover(threat: Vector3, max_distance: float = 15.0) -> Vector3:
+	var data := _nav_data()
+
+	if data == null or data.cover_count() == 0 or npc == null:
+		return Vector3.INF
+
+	var here := npc.position()
+
+	var scorer := func(spot: Vector3, index: int) -> float:
+		if (data.cover_flags_of(index) & DotNpcNavData.Cover.IN_COVER) == 0:
+			return -INF
+
+		var away := spot.distance_to(here)
+
+		if away > max_distance:
+			return -INF
+
+		var to_threat := threat - spot
+
+		if to_threat.length_squared() <= 0.0001:
+			return -INF
+
+		var covered := data.cover_normals[index].dot(to_threat.normalized())
+
+		if covered < 0.25:
+			return -INF
+
+		if squad != null:
+			var slot := StringName("cover:%d" % index)
+
+			if squad.holder_count(slot) > 0 and not squad.holds(slot, self):
+				return -INF
+
+		# dot-npc's own weighting: eight metres of walking per unit of facing.
+		return covered * 8.0 - away
+
+	var best := DotNpcAiTactics.best_of(data.cover_positions, scorer)
+
+	if best < 0 or is_inf(float(scorer.call(data.cover_positions[best], best))):
+		return Vector3.INF
+
+	if squad != null:
+		squad.release_prefixed("cover:", self)
+		squad.claim(StringName("cover:%d" % best), self, 1)
+
+	return data.cover_positions[best]
+
+
+## Goes to cover from [param threat] — the target, or the freshest thing remembered, when
+## omitted. SUCCESS once there, RUNNING on the way, FAILURE with no cover to go to.
+func take_cover(
+	ctx: DotNpcAiContext, speed: float, threat: Vector3 = Vector3.INF
+) -> DotNpcAiNode.Status:
+	if npc == null or not npc.is_alive():
+		return DotNpcAiNode.Status.FAILURE
+
+	var from := threat if threat != Vector3.INF else last_known_position()
+
+	if from == Vector3.INF:
+		return DotNpcAiNode.Status.FAILURE
+
+	var spot := find_cover(from)
+
+	if spot == Vector3.INF:
+		return DotNpcAiNode.Status.FAILURE
+
+	var flat := spot - npc.position()
+	flat.y = 0.0
+
+	if flat.length() <= 0.75:
+		halt()
+		face(from - npc.position())
+		return DotNpcAiNode.Status.SUCCESS
+
+	steer_toward(spot, speed, ctx.delta)
+	return DotNpcAiNode.Status.RUNNING
+
+
+func _nav_data() -> DotNpcNavData:
+	if director == null:
+		return null
+
+	var graph: Variant = director.get(&"nav")
+
+	if graph is DotNpcNavGraph:
+		return (graph as DotNpcNavGraph).data
+
+	return null
+
+
+# --- Shooting -----------------------------------------------------------------
+
+## Where to aim at the current target from [param muzzle], leading it and missing by this
+## character's aim — [method DotNpcAiCharacter.aim_point], fed the velocity this NPC's own
+## memory measured rather than the target's true one. [constant Vector3.INF] with no target.
+##
+## [b]The velocity is what it SAW.[/b] A bot handed the target's real velocity leads a
+## player who has just changed direction perfectly, which is the aimbot tell; one leading
+## from its own last few sightings is a beat behind a juke, which is what a person is.
+##
+## Each call is a new shot: the error seed advances, so it is called once per shot taken.
+func aim_solution(muzzle: Vector3, travel_speed: float = 0.0) -> Vector3:
+	if npc == null or not npc.has_target() or character == null:
+		return target_position(Vector3.INF)
+
+	var at := target_position(Vector3.INF)
+
+	if at == Vector3.INF:
+		return at
+
+	var entry := memory.get_entry(npc.target_id, context.now) if memory != null else null
+	var velocity := entry.velocity if entry != null else Vector3.ZERO
+	shots_fired += 1
+	return character.aim_point(muzzle, at, velocity, travel_speed, shots_fired)
+
+
+## Whether this NPC may shoot at its target now.
+##
+## Every gate a human has, in the order they bite: it can SEE the target (not merely
+## remember it), it has had time to react, it is FACING it — within [param tolerance_deg],
+## so the turn rate limits how fast it can bring a weapon round — the lane is clear of its
+## own squad, and its character's fire throttle lets this one through.
+func ready_to_fire(muzzle: Vector3, tolerance_deg: float = 12.0) -> bool:
+	if npc == null or not npc.is_alive() or not npc.has_target() or context == null:
+		return false
+
+	if not context.has_condition(DotNpcAiConditions.SEE_ENEMY) or not has_reacted():
+		return false
+
+	var at := target_position(Vector3.INF)
+
+	if at == Vector3.INF:
+		return false
+
+	var to := at - npc.position()
+	to.y = 0.0
+
+	if to.length_squared() < 0.0001:
+		return true
+
+	if rad_to_deg(npc.facing().angle_to(to.normalized())) > tolerance_deg:
+		return false
+
+	if not fire_lane_clear(muzzle, at):
+		return false
+
+	return character == null or character.should_fire(context.tick_index)
+
+
+## Whether a shot from [param from] to [param to] passes clear of every squadmate.
+##
+## [b]The friendly-fire check, and it is a tactics question.[/b] Below
+## [constant CALLOUT_TACTICS] an NPC does not look, and shoots its own squad in the back —
+## which is what a dull one does, and what makes a horde of them dangerous to itself.
+func fire_lane_clear(from: Vector3, to: Vector3, clearance: float = 0.8) -> bool:
+	if squad == null or tactics() < CALLOUT_TACTICS:
+		return true
+
+	var lane := to - from
+	var length := lane.length()
+
+	if length < 0.001:
+		return true
+
+	var along := lane / length
+
+	for member in squad.members():
+		var other := member as DotNpcAiBrain
+
+		if other == null or other == self or other.npc == null or not other.npc.is_alive():
+			continue
+
+		var offset := other.npc.position() - from
+		var t := offset.dot(along)
+
+		if t <= 0.0 or t >= length:
+			continue
+
+		var closest := from + along * t
+		var flat := other.npc.position() - closest
+		flat.y = 0.0
+
+		if flat.length() < clearance:
+			return false
+
+	return true
+
+
+## Keeps between [param near] and [param far] metres from the target, strafing across it,
+## and faces it the whole time. The leaf for anything that fights at range. RUNNING while
+## there is a target, FAILURE without one.
+##
+## [b]Strafing, not standing.[/b] A gunner that stands still at range is a target; one that
+## drifts sideways is a harder one, and the direction of the drift flips on a period from
+## its own seed so twenty of them do not all slide the same way.
+func hold_range(
+	ctx: DotNpcAiContext, speed: float, near: float = 8.0, far: float = 16.0, spacing: float = 1.6
+) -> DotNpcAiNode.Status:
+	if npc == null or not npc.is_alive() or not npc.has_target():
+		return DotNpcAiNode.Status.FAILURE
+
+	var at := target_position(Vector3.INF)
+
+	if at == Vector3.INF:
+		return DotNpcAiNode.Status.FAILURE
+
+	var here := npc.position()
+	var to := at - here
+	to.y = 0.0
+	var distance := to.length()
+
+	if distance < 0.001:
+		return DotNpcAiNode.Status.RUNNING
+
+	var toward := to / distance
+	var side := Vector3(-toward.z, 0.0, toward.x)
+	var period := 2.5 + 2.0 * DotNpcAiNode.deterministic_unit(npc.instance_id, 4421)
+	var drift := 1.0 if fmod(ctx.now / period, 2.0) < 1.0 else -1.0
+	var wanted := side * drift * 0.6
+
+	if distance > far:
+		wanted += toward
+	elif distance < near:
+		wanted -= toward
+
+	steer_with_spacing(here + wanted.normalized() * 4.0, speed, ctx.delta, spacing)
+	face(to)
+	return DotNpcAiNode.Status.RUNNING
+
+
+# --- Learning the map -----------------------------------------------------------
+
+## Walks the places players actually go on this map, and waits at each one facing the way
+## they come. A ready-made leaf for when there is nobody to fight and nothing to search.
+##
+## [b]Knowledge a wanderer does not have.[/b] [DotNpcAiHeatmap] is what the game has learned
+## of where players walk; an NPC with [method tactics] of [constant PATROL_TACTICS] or more
+## patrols its hottest cells near it, and one below wanders — the dull monster does not
+## know the map, which is half of why it is dull. How long it waits at each is its
+## character's `camper`: a camper sets up and holds a corridor, a roamer moves on.
+##
+## RUNNING while patrolling; FAILURE with no heat map, nothing hot near, or too little
+## tactics, which hands a selector on to its wander.
+func patrol_hot(ctx: DotNpcAiContext, speed: float, radius: float = 40.0) -> DotNpcAiNode.Status:
+	if npc == null or not npc.is_alive() or blackboard == null:
+		return DotNpcAiNode.Status.FAILURE
+
+	if heatmap == null:
+		heatmap = DotNpcAiHeatmap.of(director)
+
+	if heatmap == null or tactics() < PATROL_TACTICS:
+		return DotNpcAiNode.Status.FAILURE
+
+	var here := npc.position()
+	var goal: Variant = blackboard.get_value(KEY_PATROL_GOAL, ctx.now, null)
+
+	if not (goal is Vector3):
+		var hot := heatmap.hottest(DotNpcAiHeatmap.TRAFFIC, here, radius, _world_now(), 4)
+
+		if hot.is_empty():
+			return DotNpcAiNode.Status.FAILURE
+
+		# Not always the hottest: a pick among the top few, from the NPC's own seed and how
+		# many it has visited, so a pack does not all stand on one cell and one NPC does not
+		# guard the same doorway for ever.
+		var visits := blackboard.get_int(KEY_PATROL_VISITS, ctx.now, 0)
+		var pick := int(DotNpcAiNode.deterministic_unit(npc.instance_id, visits + 1) * hot.size())
+		goal = Vector3(hot[mini(pick, hot.size() - 1)].x, here.y, hot[mini(pick, hot.size() - 1)].z)
+		blackboard.put(KEY_PATROL_GOAL, goal, ctx.now)
+		blackboard.erase(KEY_PATROL_ARRIVED)
+
+	var flat: Vector3 = goal - here
+	flat.y = 0.0
+
+	if flat.length() > heatmap.cell_size * 0.5 and not blackboard.has(KEY_PATROL_ARRIVED, ctx.now):
+		steer_with_spacing(goal, speed, ctx.delta)
+		return DotNpcAiNode.Status.RUNNING
+
+	if not blackboard.has(KEY_PATROL_ARRIVED, ctx.now):
+		blackboard.put(KEY_PATROL_ARRIVED, ctx.now, ctx.now)
+
+	halt()
+
+	# Facing the way the traffic comes from: an ambusher watches the door, not the wall.
+	var flow := heatmap.flow_at(DotNpcAiHeatmap.TRAFFIC, here, _world_now())
+
+	if flow.length_squared() > 0.0001:
+		face(flow)
+
+	var camper := character.camper if character != null else 0.2
+	var hold := lerpf(2.0, 20.0, camper)
+
+	if ctx.now - blackboard.get_float(KEY_PATROL_ARRIVED, ctx.now, ctx.now) >= hold:
+		blackboard.erase(KEY_PATROL_GOAL)
+		blackboard.erase(KEY_PATROL_ARRIVED)
+		blackboard.put(KEY_PATROL_VISITS, blackboard.get_int(KEY_PATROL_VISITS, ctx.now, 0) + 1, ctx.now)
+
+	return DotNpcAiNode.Status.RUNNING
+
+
+## Whether a danger it heard is still live.
+func in_danger() -> bool:
+	return _danger_until >= _world_now()
+
+
+## Where the live danger is, or [constant Vector3.INF].
+func danger_position() -> Vector3:
+	return _danger_at if in_danger() else Vector3.INF
+
+
+## Gets out of a danger's reach and waits there until it is over. A ready-made leaf.
+##
+## RUNNING while there is a live danger — moving while inside its reach, standing outside
+## it — and FAILURE when there is none. Put it first under a reactive root: nothing an NPC
+## is doing is worth standing on a grenade for.
+func flee_danger(ctx: DotNpcAiContext, speed: float) -> DotNpcAiNode.Status:
+	if npc == null or not npc.is_alive() or not in_danger():
+		return DotNpcAiNode.Status.FAILURE
+
+	var here := npc.position()
+	var away := here - _danger_at
+	away.y = 0.0
+
+	if away.length() > _danger_extent + 1.5:
+		halt()
+		return DotNpcAiNode.Status.RUNNING
+
+	if away.length_squared() < 0.0001:
+		away = -npc.facing()
+
+	steer_with_spacing(here + away.normalized() * 6.0, speed, ctx.delta)
+	return DotNpcAiNode.Status.RUNNING
+
+
+# --- Being hurt ---------------------------------------------------------------
+
+## What being hurt by [param by] tells this NPC.
+##
+## Two things, and neither is "knows exactly where everybody is":
+##
+## - **With nothing to chase, it turns and goes to look** where the hurt came from. An NPC
+##   that keeps wandering while it is shot from behind is one you can farm, and the bug
+##   report is "they don't fight back".
+## - **Chasing somebody else, it may switch** — by its character's vengefulness, rolled
+##   from its own seed so a replay agrees. dot-npc's senses then hold the switch only if
+##   the attacker is actually perceived: a rival in sight takes the commitment back on the
+##   next pass, so a vengeful NPC cannot be led away from a target it can see by somebody
+##   it cannot.
+func _hurt_by(by: StringName, amount: float) -> void:
+	_pending_damage += maxf(amount, 0.0)
+
+	if by == &"" or npc == null or not npc.is_alive() or memory == null or context == null:
+		return
+
+	if director == null or not director.has_method(&"candidate_position"):
+		return
+
+	var found: Variant = director.call(&"candidate_position", by, Vector3.INF)
+
+	if not (found is Vector3) or found == Vector3.INF:
+		# Not something it could ever target — the world, a trap, another NPC.
+		return
+
+	var at: Vector3 = found
+	memory.hurt_by(by, at, amount, context.now)
+
+	if npc.target_id == by:
+		return
+
+	if not npc.has_target():
+		face(at - npc.position())
+		return
+
+	if character == null or character.vengefulness <= 0.0:
+		return
+
+	var roll := character.unit(context.tick_index * 31 + by.hash())
+
+	if roll < character.vengefulness:
+		var now := _world_now()
+		npc.target_id = by
+		npc.target_since = now
+		npc.target_seen_at = now
+		npc.engaged_at = now
+
+
+## The director's clock, which is the one dot-npc's senses stamp targets with.
+func _world_now() -> float:
+	if director != null and director.has_method(&"now"):
+		return float(director.call(&"now"))
+
+	return context.now if context != null else 0.0
+
+
+# --- Turning ------------------------------------------------------------------
+
+## Turns toward [param direction] no faster than this character can.
+##
+## [b]Every turn the brain makes goes through here, steering included[/b] — dot-npc's
+## `steer_toward` faces the way it moves — so an NPC's sight cone swings at the character's
+## [member DotNpcAiCharacter.view_turn_deg]. Without it every NPC snapped round in one tick:
+## shot from behind, it faced you before the sound of the shot had finished, and a player
+## could not get behind one at all.
+##
+## Limited from where the NPC faced at the START of the think, so two calls in one tick —
+## a steer and then a look — do not turn it twice as far.
+func face(direction: Vector3) -> void:
+	if character == null or context == null or context.delta <= 0.0 or npc == null:
+		super(direction)
+		return
+
+	var flat := Vector3(direction.x, 0.0, direction.z)
+
+	if flat.length_squared() < 0.000001:
+		return
+
+	var from := _facing_at_tick if _facing_at_tick.length_squared() > 0.0001 else npc.facing()
+	super(character.turn_view(from, flat.normalized(), context.delta))
+
 
 
 ## The nearby positions a separation pass needs, asked of the director.
@@ -249,6 +1391,13 @@ func describe() -> Dictionary:
 	out["tree"] = DotNpcAiNode.Status.keys()[last_status] if tree != null else "-"
 	out["machine"] = machine.describe() if machine != null else "-"
 	out["knows"] = blackboard.size() if blackboard != null else 0
+	out["character"] = String(character.id) if character != null else "-"
+	out["conditions"] = ", ".join(context.conditions.names()) if context != null else ""
+	out["remembers"] = memory.size() if memory != null else 0
+	out["squad"] = String(squad_name) if squad != null else "-"
+
+	if character != null:
+		out["reaction"] = "%.2fs" % character.reaction_time
 
 	return out
 
@@ -261,5 +1410,15 @@ func describe_lines() -> PackedStringArray:
 
 	if tree != null:
 		out.append_array(tree.describe_lines())
+
+	if context != null:
+		out.append("conditions: %s" % ", ".join(context.conditions.names()))
+
+	if memory != null and context != null:
+		for line in memory.describe_lines(context.now):
+			out.append("knows: %s" % line)
+
+	if squad != null:
+		out.append_array(squad.describe_lines())
 
 	return out

@@ -324,3 +324,52 @@ class RandomChance:
 			return Status.FAILURE
 
 		return child.tick(ctx)
+
+
+## Runs its child until one of [member mask]'s conditions appears, then aborts it and fails.
+##
+## [b]The schedule interrupt.[/b] Every long action names what ends it: a search ends on
+## SEE_ENEMY, a wait for an attack slot ends on HEAVY_DAMAGE, a walk to cover ends on
+## HEAR_DANGER. Without it the only way a running action stops is a reactive guard ABOVE
+## it, and that puts every interrupt for every action in one place nobody can read.
+##
+## Checked BEFORE the child ticks, so the child does not take one more step into the
+## thing that should have stopped it — the tick the grenade landed is not a tick to keep
+## walking toward it. Fails rather than succeeding, so a selector above it moves on.
+class Interrupt:
+	extends DotNpcAiDecorator
+
+	var mask: int = 0
+
+	## Interrupts only on a condition that BECAME true, rather than on one that is true.
+	##
+	## Off by default. On is for an action that may legitimately start while the condition
+	## already holds — a flinch entered on LIGHT_DAMAGE must not be interrupted by the very
+	## damage it is reacting to.
+	var only_new: bool = false
+
+	var interrupt_count: int = 0
+
+	func _init(
+		p_name: StringName = &"", p_child: DotNpcAiNode = null, p_mask: int = 0,
+		p_only_new: bool = false
+	) -> void:
+		super(p_name, p_child)
+		mask = p_mask
+		only_new = p_only_new
+
+	func _tick(ctx: DotNpcAiContext) -> Status:
+		if child == null:
+			return Status.FAILURE
+
+		var hit := ctx.conditions.became(mask) if only_new else ctx.conditions.has(mask)
+
+		if hit:
+			interrupt_count += 1
+
+			if child.is_running:
+				child.abort(ctx)
+
+			return Status.FAILURE
+
+		return child.tick(ctx)

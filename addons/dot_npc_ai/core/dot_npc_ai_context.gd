@@ -29,6 +29,11 @@ var blackboard: DotNpcAiBlackboard = null
 ## is running it is a tree that only runs under one.
 var character: DotNpcAiCharacter = null
 
+## What the NPC noticed this tick. Filled by the brain before anything runs, and read by
+## guards and by [DotNpcAiDecorator.Interrupt]. Never null, so a node can ask without
+## checking — a context built outside a brain simply never has anything set.
+var conditions: DotNpcAiConditions = DotNpcAiConditions.new()
+
 ## Seconds in this tick.
 var delta: float = 0.0
 
@@ -71,6 +76,11 @@ func get_value(key: StringName, fallback: Variant = null) -> Variant:
 ##
 ## True when there is no character, which is the right answer: an NPC nobody gave a
 ## reaction time to does not have one.
+## Whether any of [param mask] is among this tick's conditions.
+func has_condition(mask: int) -> bool:
+	return conditions.has(mask)
+
+
 func has_reacted(seen_at: float) -> bool:
 	return character == null or character.has_reacted(seen_at, now)
 

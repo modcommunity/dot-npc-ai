@@ -135,6 +135,16 @@ const MASK := 0x7FFFFFFFFFFFFFFF
 ## decides when a shot is possible.
 @export_range(0.0, 1.0, 0.01) var fire_throttle: float = 0.8
 
+## How much it works with others and thinks ahead, rather than walking straight at you.
+##
+## [b]Not in the original table, and added because it is the gap between an NPC and a
+## squad.[/b] It decides whether this NPC calls out what it sees to its squad, how far it
+## leads a lost target when it goes looking (somewhere the target was heading rather than
+## the spot it was last seen), and how hard it works its way round to your back while it
+## waits for a place in the attack. An NPC at 0 is a brave idiot; one at 1 is the reason a
+## player checks behind them. Ability rather than personality, so the server's skill moves it.
+@export_range(0.0, 1.0, 0.01) var tactics: float = 0.5
+
 @export_group("Movement")
 
 @export_range(0.0, 1.0, 0.01) var croucher: float = 0.1
@@ -162,6 +172,10 @@ static func easy() -> DotNpcAiCharacter:
 	out.aggression = 0.3
 	out.self_preservation = 0.7
 	out.fire_throttle = 0.55
+	# Forgets you quickly. An easy NPC that searched for twenty seconds would be one you
+	# could not shake, which is the opposite of easy.
+	out.memory_time = 2.5
+	out.tactics = 0.1
 	return out
 
 
@@ -185,6 +199,8 @@ static func hard() -> DotNpcAiCharacter:
 	out.aggression = 0.7
 	out.self_preservation = 0.4
 	out.fire_throttle = 0.9
+	out.memory_time = 8.0
+	out.tactics = 0.75
 	return out
 
 
@@ -207,15 +223,36 @@ static func nightmare() -> DotNpcAiCharacter:
 	out.self_preservation = 0.25
 	out.vengefulness = 0.8
 	out.fire_throttle = 1.0
+	out.memory_time = 15.0
+	out.tactics = 0.95
 	return out
+
+
+## The preset a name means, or [method normal] for one it does not know.
+##
+## For a catalogue: `"skill": "hard"` in a definition's `meta` is the half of a character an
+## operator editing JSON can reach, and every game that offered it wrote this switch.
+## Unknown names are normal rather than an error, because a typo in a catalogue should give
+## an ordinary NPC and not a spawner that refuses to spawn one.
+static func preset(preset_name: String) -> DotNpcAiCharacter:
+	match preset_name.strip_edges().to_lower():
+		"easy":
+			return easy()
+		"hard":
+			return hard()
+		"nightmare":
+			return nightmare()
+		_:
+			return normal()
 
 
 # --- Reacting -----------------------------------------------------------------
 
 ## Whether enough time has passed since [param seen_at] for this NPC to act.
 ##
-## [param seen_at] is when the target was first perceived — dot-npc's
-## [code]DotNpcInstance.engaged_at[/code] is exactly it. A negative or zero
+## [param seen_at] is when the NPC committed to the target — dot-npc's
+## [code]DotNpcInstance.target_since[/code], and NOT `engaged_at`, which is refreshed on
+## every pass the target is seen and so never lets a reaction elapse. A negative or zero
 ## [member reaction_time] answers true immediately, which is what a scripted NPC in a
 ## cutscene wants.
 func has_reacted(seen_at: float, now: float) -> bool:
@@ -336,13 +373,13 @@ func turn_view(current: Vector3, wanted: Vector3, delta: float) -> Vector3:
 	var axis := from.cross(to)
 
 	if axis.length_squared() <= 0.000001:
-		# Exactly opposite. Any axis perpendicular to `from` turns it the right amount
-		# and none of them is more correct than another; without this the cross is zero
-		# and the rotation is a no-op, so a bot with something directly behind it never
-		# turns round.
-		axis = from.cross(Vector3.UP)
-		if axis.length_squared() <= 0.000001:
-			axis = from.cross(Vector3.RIGHT)
+		# Exactly opposite: the cross is zero and any perpendicular axis turns `from` the
+		# right amount. [b]Not any of them is right, though.[/b] This used `from.cross(UP)`,
+		# which for a level view is a HORIZONTAL axis — so a bot with something directly
+		# behind it tipped its head back a degree a tick instead of turning round, and once
+		# the vertical was flattened away it had not turned at all. Turning round is about
+		# UP, unless the view is itself straight up or down.
+		axis = Vector3.UP if absf(from.dot(Vector3.UP)) < 0.99 else Vector3.RIGHT
 
 	return from.rotated(axis.normalized(), step)
 
@@ -429,6 +466,7 @@ func to_dictionary() -> Dictionary:
 		"vengefulness": vengefulness,
 		"camper": camper,
 		"fire_throttle": fire_throttle,
+		"tactics": tactics,
 		"croucher": croucher,
 		"jumper": jumper,
 		"walker": walker,
@@ -454,6 +492,7 @@ static func from_dictionary(data: Dictionary) -> DotResult:
 	out.vengefulness = clampf(float(data.get("vengefulness", 0.5)), 0.0, 1.0)
 	out.camper = clampf(float(data.get("camper", 0.2)), 0.0, 1.0)
 	out.fire_throttle = clampf(float(data.get("fire_throttle", 0.8)), 0.0, 1.0)
+	out.tactics = clampf(float(data.get("tactics", 0.5)), 0.0, 1.0)
 	out.croucher = clampf(float(data.get("croucher", 0.1)), 0.0, 1.0)
 	out.jumper = clampf(float(data.get("jumper", 0.2)), 0.0, 1.0)
 	out.walker = clampf(float(data.get("walker", 0.3)), 0.0, 1.0)
@@ -484,6 +523,7 @@ func describe() -> Dictionary:
 		"accuracy": "%.2f" % aim_accuracy,
 		"skill": "%.2f" % aim_skill,
 		"aggression": "%.2f" % aggression,
+		"tactics": "%.2f" % tactics,
 	}
 
 

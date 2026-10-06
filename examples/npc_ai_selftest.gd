@@ -16,14 +16,16 @@ extends Node
 
 const BODY := "res://fixtures/npc_body.tscn"
 const BRAIN := "res://fixtures/zombie_brain.gd"
+const SEARCHER := "res://fixtures/searcher_brain.gd"
+const GUNNER := "res://fixtures/gunner_brain.gd"
 
-const CHECKS := 167
+const CHECKS := 313
 
 ## Sections entered against sections that ran to their last line, and against this. A
 ## runtime error inside a section aborts that function and nothing says so; a section that
 ## bailed out early after a failed guard is counted as not finished on purpose. The CHECKS
 ## total is the other half — see docs/testing.md.
-const SECTIONS := 21
+const SECTIONS := 32
 
 var _passed := 0
 var _failed := 0
@@ -67,6 +69,17 @@ func _run() -> void:
 	_test_character_aim()
 	_test_brain_on_a_real_npc()
 	_test_crowd_separation()
+	_test_server_skill()
+	_test_brain_under_a_skill()
+	_test_conditions()
+	_test_memory()
+	_test_sounds()
+	_test_squad()
+	_test_tactics()
+	_test_brain_perception()
+	_test_squad_on_real_npcs()
+	_test_heatmap()
+	_test_ranged_and_roles()
 
 	print("")
 	print("%d passed, %d failed" % [_passed, _failed])
@@ -1275,6 +1288,36 @@ func _catalogue() -> DotNpcCatalogue:
 	zombie.meta = {"speed": 4.0}
 	cat.add(zombie)
 
+	# Chase, search, idle, with its character named in the catalogue rather than chosen by
+	# its script — the half of a character an operator editing JSON can reach.
+	var searcher := DotNpcDef.make(&"searcher", BODY)
+	searcher.brain_script_path = SEARCHER
+	searcher.require_line_of_sight = false
+	searcher.sight_half_angle_deg = 180.0
+	searcher.sight_range = 30.0
+	searcher.meta = {"speed": 4.0, "skill": "normal"}
+	cat.add(searcher)
+
+	# The same brain as a squad member: a hard character, one attack slot per target, a ring
+	# of four metres for the rest.
+	var soldier := DotNpcDef.make(&"soldier", BODY)
+	soldier.brain_script_path = SEARCHER
+	soldier.require_line_of_sight = false
+	soldier.sight_half_angle_deg = 180.0
+	soldier.sight_range = 30.0
+	soldier.meta = {
+		"speed": 4.0, "skill": "hard", "squad": "pair", "attackers": 1, "ring": 4.0,
+	}
+	cat.add(soldier)
+
+	var gunner := DotNpcDef.make(&"gunner", BODY)
+	gunner.brain_script_path = GUNNER
+	gunner.require_line_of_sight = false
+	gunner.sight_half_angle_deg = 180.0
+	gunner.sight_range = 40.0
+	gunner.meta = {"speed": 4.0, "skill": "hard", "squad": "pair", "near": 8.0, "far": 14.0}
+	cat.add(gunner)
+
 	return cat
 
 
@@ -1440,4 +1483,1054 @@ func _test_crowd_separation() -> void:
 
 	floor_body.queue_free()
 	spawner.queue_free()
+	_done()
+
+
+## A fake of the one cvar shape [method DotNpcAiSkill.bind_cvars] relies on, so this suite
+## proves the binding without dot-server — which is not a dependency of this addon.
+class FakeCvar:
+	extends RefCounted
+
+	signal changed(old_value: String, new_value: String)
+
+	var cvar_name := ""
+	var value := ""
+	var validator: Callable = Callable()
+	var ranged := false
+
+	func get_string() -> String:
+		return value
+
+	func with_range(_lo: float, _hi: float) -> FakeCvar:
+		ranged = true
+		return self
+
+	func with_validator(check: Callable) -> FakeCvar:
+		validator = check
+		return self
+
+	## What a console does: validate, store, announce.
+	func set_value(text: String) -> bool:
+		if validator.is_valid():
+			var checked: Variant = validator.call(text)
+			if checked is DotResult and not (checked as DotResult).ok:
+				return false
+		var old := value
+		value = text
+		changed.emit(old, text)
+		return true
+
+
+func _test_server_skill() -> void:
+	_section("a server's skill, over each character")
+
+	var normal := DotNpcAiCharacter.normal().with_seed(4242)
+	var skill := DotNpcAiSkill.new()
+
+	var same := skill.apply(normal)
+	_check(
+		is_equal_approx(same.reaction_time, normal.reaction_time)
+			and is_equal_approx(same.aim_accuracy, normal.aim_accuracy),
+		"at skill 0 a character is as authored"
+	)
+	_check(same != normal, "and a copy, so the authored one survives every change")
+
+	skill.set_skill(1.0)
+	var best := skill.apply(normal)
+	_check(
+		best.reaction_time < normal.reaction_time and best.aim_accuracy > normal.aim_accuracy,
+		"turning it up makes an NPC quicker and more accurate",
+		"%.2fs, %.2f" % [best.reaction_time, best.aim_accuracy]
+	)
+	_check(
+		best.alertness > normal.alertness and best.memory_time > normal.memory_time,
+		"and more alert, with a longer memory"
+	)
+	_check(
+		is_equal_approx(best.aggression, normal.aggression)
+			and is_equal_approx(best.self_preservation, normal.self_preservation)
+			and is_equal_approx(best.vengefulness, normal.vengefulness),
+		"but its personality is left alone",
+		"a coward that turned brave on a hard server is a different game"
+	)
+	_check(best.seed_value == 4242, "and it keeps its own seed")
+
+	# A kind authored BETTER than the preset at the end of the scale. A plain lerp toward
+	# nightmare would make it slower as skill went up.
+	var quick := DotNpcAiCharacter.normal()
+	quick.reaction_time = 0.06
+	_check(
+		is_equal_approx(skill.apply(quick).reaction_time, 0.06),
+		"turning skill up never makes a kind worse at what it was already best at",
+		"%.3fs" % skill.apply(quick).reaction_time
+	)
+
+	skill.set_skill(-1.0)
+	var worst := skill.apply(normal)
+	_check(
+		is_equal_approx(worst.reaction_time, DotNpcAiCharacter.easy().reaction_time),
+		"and all the way down reacts like the easy preset",
+		"%.2fs" % worst.reaction_time
+	)
+
+	skill.set_skill(0.0)
+	skill.set_reaction_scale(2.0)
+	_check(
+		is_equal_approx(skill.apply(normal).reaction_time, normal.reaction_time * 2.0),
+		"the reaction scale is a multiplier on its own, separate from skill"
+	)
+
+	skill.set_reaction_scale(0.1)
+	_check(
+		is_equal_approx(skill.apply(DotNpcAiCharacter.nightmare()).reaction_time, 0.05),
+		"and the floor stops it reaching an instant reaction",
+		"%.3fs" % skill.apply(DotNpcAiCharacter.nightmare()).reaction_time
+	)
+
+	var scripted := DotNpcAiCharacter.normal()
+	scripted.reaction_time = 0.0
+	_check(
+		is_zero_approx(skill.apply(scripted).reaction_time),
+		"but a scripted NPC authored with no reaction time is not made to hesitate"
+	)
+
+	var before := skill.revision
+	skill.set_reaction_scale(0.1)
+	_check(skill.revision == before, "setting a value it already has is not a change")
+	skill.set_reaction_scale(1.0)
+	_check(skill.revision == before + 1, "and a real change bumps the revision once")
+
+	_check(
+		is_equal_approx(float(DotNpcAiSkill.parse_skill("hard").value), 0.5)
+			and is_equal_approx(float(DotNpcAiSkill.parse_skill("Nightmare").value), 1.0),
+		"an operator may type a level by name"
+	)
+	_check(
+		is_equal_approx(float(DotNpcAiSkill.parse_skill("5").value), 1.0),
+		"a number out of range is clamped rather than refused"
+	)
+	_check(not DotNpcAiSkill.parse_skill("hrad").ok, "and a typo is refused")
+
+	# --- The cvars -----------------------------------------------------------------
+	var bound := DotNpcAiSkill.new()
+	var made: Array = []
+	var preset_values := {DotNpcAiSkill.CVAR_SKILL: "hard"}
+
+	var add := func(cvar_name: String, default_value: String, _description: String, _flags: int) -> Object:
+		var cv := FakeCvar.new()
+		cv.cvar_name = cvar_name
+		# Already set by argv before the module registered it, which is the case a
+		# binding that only listened for changes would miss.
+		cv.value = str(preset_values.get(cvar_name, default_value))
+		made.append(cv)
+		return cv
+
+	var returned := bound.bind_cvars(add)
+	_check(made.size() == 3 and returned.size() == 3, "three cvars are registered")
+	_check(
+		is_equal_approx(bound.skill, 0.5),
+		"and a value set before they were bound is read back",
+		"%.2f" % bound.skill
+	)
+
+	var by_name := {}
+	for cv in made:
+		by_name[(cv as FakeCvar).cvar_name] = cv
+
+	(by_name[DotNpcAiSkill.CVAR_REACTION_SCALE] as FakeCvar).set_value("0.5")
+	_check(is_equal_approx(bound.reaction_scale, 0.5), "a change at the console reaches the skill")
+	_check(
+		(by_name[DotNpcAiSkill.CVAR_REACTION_MIN] as FakeCvar).ranged,
+		"the numeric ones are given a range"
+	)
+	_check(
+		not (by_name[DotNpcAiSkill.CVAR_SKILL] as FakeCvar).set_value("hrad")
+			and is_equal_approx(bound.skill, 0.5),
+		"and npc_skill refuses a typo at the console instead of ignoring it"
+	)
+
+	var holder := Node.new()
+	bound.attach(holder)
+	_check(DotNpcAiSkill.of(holder) == bound, "a skill attached to a director is found on it")
+	var bare := Node.new()
+	_check(DotNpcAiSkill.of(bare) == null, "and a director without one has none")
+	holder.free()
+	bare.free()
+
+	_done()
+
+
+func _test_brain_under_a_skill() -> void:
+	_section("a brain under a server's skill")
+
+	var spawner := _spawner()
+	var skill := DotNpcAiSkill.new()
+	skill.attach(spawner)
+
+	var npc := spawner.spawn(&"searcher", Vector3.ZERO)
+	var brain := npc.brain as DotNpcAiBrain
+
+	_check(brain.skill == skill, "a brain finds the server's skill on its director")
+	_check(
+		brain.character != null and brain.character.id == &"normal",
+		"and a character named in the catalogue is the one it has"
+	)
+	_check(
+		brain.character.seed_value == npc.instance_id or npc.instance_id <= 1,
+		"seeded from its instance"
+	)
+	_check(brain.context.character == brain.character, "and the tree sees the same one")
+
+	var authored := brain.character.reaction_time
+
+	skill.set_skill(1.0)
+	spawner.tick(1.0 / 60.0)
+	_check(
+		brain.character.reaction_time < authored,
+		"turning the server up reaches a live NPC on its next tick",
+		"%.2fs from %.2fs" % [brain.character.reaction_time, authored]
+	)
+	_check(
+		npc.sight_scale > 1.0,
+		"and its alertness reaches dot-npc's senses, which nothing read before",
+		"sight scale %.2f" % npc.sight_scale
+	)
+
+	skill.set_skill(0.0)
+	spawner.tick(1.0 / 60.0)
+	_check(
+		is_equal_approx(brain.character.reaction_time, authored),
+		"and turning it back comes back to what was authored, not to the last change"
+	)
+
+	var vengeful := DotNpcAiCharacter.normal()
+	vengeful.vengefulness = 1.0
+	vengeful.memory_time = 5.0
+	brain.character = vengeful
+	spawner.tick(1.0 / 60.0)
+	_check(
+		brain.base_character != null and brain.base_character.vengefulness == 1.0,
+		"a character a game assigns mid-life is adopted rather than overwritten"
+	)
+
+	# --- Remembering, searching, giving up ------------------------------------------
+	var hidden := npc.def.faction
+	spawner.set_candidates([
+		DotNpcSenses.Candidate.new(&"player", Vector3(0, 0, -8), &"player")
+	])
+
+	for i in 30:
+		spawner.tick(1.0 / 60.0)
+
+	_check(npc.has_target(), "the searcher acquires somebody")
+	_check(brain.remembers_target(), "and remembers where they are")
+
+	# Out of sight without leaving: the same id, the same place, on the NPC's own side so
+	# the senses cannot perceive it — which is a player behind a wall, as far as dot-npc
+	# can tell. Emptying the candidates instead would also make the position unknowable,
+	# and a game's players do not stop existing when they hide.
+	spawner.set_candidates([
+		DotNpcSenses.Candidate.new(&"player", Vector3(0, 0, -8), hidden)
+	])
+
+	# The grace (3 s), and a little.
+	for i in 200:
+		spawner.tick(1.0 / 60.0)
+
+	_check(not npc.has_target(), "once the grace has run out it is no longer chasing")
+	_check(brain.remembers_target(), "but it still remembers where they were")
+
+	var searches_before := int(brain.get(&"searches"))
+
+	for i in 60:
+		spawner.tick(1.0 / 60.0)
+
+	_check(
+		int(brain.get(&"searches")) > searches_before,
+		"so it searches there rather than standing about"
+	)
+
+	# Look-round for normal's 5 s memory is 2 s. Four is plenty.
+	for i in 240:
+		spawner.tick(1.0 / 60.0)
+
+	_check(not brain.remembers_target(), "and after looking round it forgets")
+	_check(int(brain.get(&"idles")) > 0, "and goes back to doing nothing")
+
+	# --- Being hurt by something it cannot see ---------------------------------------
+	var shooter_at := npc.position() + Vector3(12, 0, 0)
+	spawner.set_candidates([
+		DotNpcSenses.Candidate.new(&"sniper", shooter_at, hidden)
+	])
+
+	var start := npc.position()
+	spawner.damage(npc.instance_id, 1.0, &"sniper")
+
+	_check(
+		brain.last_known_position().distance_to(shooter_at) < 0.01,
+		"hurt from out of sight, it knows where the hurt came from"
+	)
+
+	for i in 120:
+		spawner.tick(1.0 / 60.0)
+
+	var was := start - shooter_at
+	var now := npc.position() - shooter_at
+	was.y = 0.0
+	now.y = 0.0
+	_check(
+		now.length() < was.length() - 3.0,
+		"and goes to look rather than carrying on",
+		"%.1f m from %.1f m" % [now.length(), was.length()]
+	)
+
+	# --- Vengeance -------------------------------------------------------------------
+	spawner.set_candidates([
+		DotNpcSenses.Candidate.new(&"near", npc.position() + Vector3(0, 0, -4), &"player"),
+		# Not much further than the other. The senses' stickiness switches BACK to a rival
+		# 40% nearer than the committed target, and that rule is right: the first version
+		# of this check put the attacker half as far again away, the NPC had walked toward
+		# the nearer one, and the senses took the vengeance back on the next pass.
+		DotNpcSenses.Candidate.new(&"far", npc.position() + Vector3(0, 0, 4.5), &"player"),
+	])
+
+	for i in 5:
+		spawner.tick(1.0 / 60.0)
+
+	_check(npc.target_id == &"near", "it commits to the nearer of two")
+
+	spawner.damage(npc.instance_id, 1.0, &"far")
+	spawner.tick(1.0 / 60.0)
+	_check(
+		npc.target_id == &"far",
+		"and a vengeful one turns on whoever hurt it",
+		"target %s" % String(npc.target_id)
+	)
+
+	var forgiving := DotNpcAiCharacter.normal()
+	forgiving.vengefulness = 0.0
+	brain.character = forgiving
+
+	for i in 30:
+		spawner.tick(1.0 / 60.0)
+
+	var held := npc.target_id
+	spawner.damage(npc.instance_id, 1.0, &"near" if held == &"far" else &"far")
+	spawner.tick(1.0 / 60.0)
+	_check(npc.target_id == held, "and one with no vengefulness does not")
+
+	_world.remove_child(spawner)
+	spawner.free()
+	_done()
+
+
+## A node that runs for ever and counts how often it was told to stop.
+class Endless:
+	extends DotNpcAiNode
+
+	var aborted := 0
+
+	func _tick(_ctx: DotNpcAiContext) -> Status:
+		return Status.RUNNING
+
+	func _abort(_ctx: DotNpcAiContext) -> void:
+		aborted += 1
+
+
+## Something a squad can hold, with the report method a brain has.
+class FakeMember:
+	extends RefCounted
+
+	var reports: Array = []
+
+	func _squad_report(enemy: StringName, position: Vector3, _velocity: Vector3, _at: float) -> bool:
+		reports.append([enemy, position])
+		return true
+
+
+func _test_conditions() -> void:
+	_section("conditions, and the interrupt that reads them")
+
+	var c := DotNpcAiConditions.new()
+	c.set_flag(DotNpcAiConditions.SEE_ENEMY | DotNpcAiConditions.LIGHT_DAMAGE)
+	_check(c.has(DotNpcAiConditions.SEE_ENEMY), "a condition set is a condition had")
+	_check(
+		c.has(DotNpcAiConditions.HEAR_DANGER | DotNpcAiConditions.LIGHT_DAMAGE)
+			and not c.has_all(DotNpcAiConditions.HEAR_DANGER | DotNpcAiConditions.LIGHT_DAMAGE),
+		"has is any of them, has_all is all of them"
+	)
+	_check(c.became(DotNpcAiConditions.SEE_ENEMY), "and it became true this tick")
+
+	c.begin_tick()
+	_check(not c.has(DotNpcAiConditions.SEE_ENEMY), "a new tick starts with nothing")
+	c.set_flag(DotNpcAiConditions.SEE_ENEMY)
+	_check(
+		c.has(DotNpcAiConditions.SEE_ENEMY) and not c.became(DotNpcAiConditions.SEE_ENEMY),
+		"and one still true is had, but did not become"
+	)
+
+	var ctx := _context()
+	var endless := Endless.new(&"walk")
+	var guard := DotNpcAiDecorator.Interrupt.new(&"until danger", endless, DotNpcAiConditions.HEAR_DANGER)
+
+	_check(guard.tick(ctx) == DotNpcAiNode.Status.RUNNING, "an interrupt runs its child")
+	_check(endless.is_running, "which is running")
+
+	ctx.conditions.begin_tick()
+	ctx.conditions.set_flag(DotNpcAiConditions.HEAR_DANGER)
+	_check(guard.tick(ctx) == DotNpcAiNode.Status.FAILURE, "until the condition appears, when it fails")
+	_check(endless.aborted == 1 and not endless.is_running, "and the child is told it was stopped")
+
+	var flinch := Endless.new(&"flinch")
+	var on_new := DotNpcAiDecorator.Interrupt.new(
+		&"flinch", flinch, DotNpcAiConditions.LIGHT_DAMAGE, true
+	)
+	ctx.conditions.begin_tick()
+	ctx.conditions.set_flag(DotNpcAiConditions.LIGHT_DAMAGE)
+	ctx.conditions.begin_tick()
+	ctx.conditions.set_flag(DotNpcAiConditions.LIGHT_DAMAGE)
+	_check(
+		on_new.tick(ctx) == DotNpcAiNode.Status.RUNNING,
+		"only_new ignores a condition that was already true",
+		"a flinch must not be interrupted by the damage it is reacting to"
+	)
+	_done()
+
+
+func _test_memory() -> void:
+	_section("memory of enemies")
+
+	var m := DotNpcAiMemory.new()
+	m.forget_after = 5.0
+
+	m.sighted(&"a", Vector3(0, 0, 0), 0.0)
+	m.sighted(&"a", Vector3(1, 0, 0), 0.25)
+	m.sighted(&"a", Vector3(2, 0, 0), 0.5)
+
+	var entry := m.get_entry(&"a", 0.5)
+	_check(entry != null and entry.velocity.x > 2.0, "successive sightings give a velocity",
+		"%.2f m/s" % (entry.velocity.x if entry != null else 0.0))
+
+	var ahead := m.predicted(&"a", 1.5, 1.0)
+	_check(ahead.x > 2.0 + 2.0, "a lost enemy is predicted along it",
+		"x %.2f" % ahead.x)
+	_check(
+		is_equal_approx(m.predicted(&"a", 1.5, 0.0).x, 2.0),
+		"and a lead of nothing is where it was last seen"
+	)
+
+	var far := m.predicted(&"a", 4.5, 1.0)
+	_check(
+		far.x - 2.0 <= m.max_lead * entry.velocity.length() + 0.001,
+		"the prediction stops growing after max_lead",
+		"%.2f m ahead" % (far.x - 2.0)
+	)
+
+	m.heard(&"a", Vector3(50, 0, 0), 0.5)
+	_check(m.get_entry(&"a", 0.5).position.x == 2.0, "a sound never overrides a sighting from the same moment")
+
+	_check(
+		not m.informed(&"a", Vector3(9, 0, 0), Vector3.ZERO, 0.2, 0.6),
+		"an older squad report is not news"
+	)
+	_check(
+		m.informed(&"b", Vector3(9, 0, 0), Vector3(0, 0, 3), 0.6, 0.6)
+			and m.get_entry(&"b", 0.6).is_rumour(),
+		"a new one is, and is marked second-hand"
+	)
+	_check(m.freshest(0.6).id == &"b", "the freshest is what was learned last")
+
+	m.hurt_by(&"c", Vector3(-4, 0, 0), 12.0, 0.7)
+	_check(
+		m.get_entry(&"c", 0.7).hurt_me == 12.0
+			and m.get_entry(&"c", 0.7).source == DotNpcAiMemory.Source.DAMAGE,
+		"being hurt is remembered, with how much"
+	)
+
+	_check(m.get_entry(&"a", 6.0) == null, "and everything is forgotten after forget_after")
+	_check(m.size() == 2, "on read, not in a sweep", "%d left" % m.size())
+
+	var never := DotNpcAiMemory.new()
+	never.forget_after = 0.0
+	never.sighted(&"x", Vector3.ZERO, 1.0)
+	_check(never.get_entry(&"x", 1.0) == null, "a memory of zero remembers nothing, not everything")
+	_done()
+
+
+func _test_sounds() -> void:
+	_section("sounds")
+
+	var board := DotNpcAiSounds.new()
+	var shot := board.emit(DotNpcAiSounds.Kind.COMBAT, Vector3(10, 0, 0), 20.0, 1.0, 0.5, &"p1")
+
+	_check(board.audible(Vector3.ZERO, 1.0).size() == 1, "a shot is heard inside its radius")
+	_check(board.audible(Vector3(40, 0, 0), 1.0).size() == 0, "and not outside it")
+	_check(
+		board.audible(Vector3(-15, 0, 0), 1.0, 1.0).size() == 0
+			and board.audible(Vector3(-15, 0, 0), 1.0, 1.5).size() == 1,
+		"an alert listener hears further than a dull one"
+	)
+	_check(board.audible(Vector3.ZERO, 1.0, 1.0, shot).is_empty(), "a sound already heard is not heard again")
+	_check(board.audible(Vector3.ZERO, 2.0).is_empty(), "and one that has passed is not heard at all")
+
+	var grenade := board.emit(DotNpcAiSounds.Kind.DANGER, Vector3.ZERO, 15.0, 2.0, 3.0, &"", 4.0)
+	var found := board.audible(Vector3(10, 0, 0), 2.0, 1.0, shot)
+	_check(
+		found.size() == 1 and found[0].id == grenade and found[0].extent == 4.0,
+		"a danger carries how far it reaches as well as how far it is heard"
+	)
+
+	for i in DotNpcAiSounds.CAPACITY + 20:
+		board.emit(DotNpcAiSounds.Kind.WORLD, Vector3.ZERO, 1.0, 2.0, 60.0)
+	_check(board.size() <= DotNpcAiSounds.CAPACITY, "the list is bounded",
+		"%d kept" % board.size())
+	_done()
+
+
+func _test_squad() -> void:
+	_section("squads and slots")
+
+	var squad := DotNpcAiSquad.new(&"alpha")
+	var a := FakeMember.new()
+	var b := FakeMember.new()
+	var c := FakeMember.new()
+	squad.join(a)
+	squad.join(b)
+	squad.join(c)
+
+	_check(squad.size() == 3, "three join")
+	_check(squad.claim(&"attack:p", a, 2) and squad.claim(&"attack:p", b, 2), "two take the two attack slots")
+	_check(not squad.claim(&"attack:p", c, 2), "and the third is refused")
+	_check(squad.claim(&"attack:p", a, 2), "a holder asking again keeps it")
+
+	squad.leave(a)
+	_check(squad.claim(&"attack:p", c, 2), "when one leaves its slot is the next one's")
+
+	var reported := squad.report(b, &"p", Vector3(1, 2, 3), Vector3.ZERO, 0.0)
+	_check(reported == 1 and c.reports.size() == 1 and b.reports.is_empty(),
+		"a report reaches every other member and not the one who made it")
+
+	# A member freed without leaving — which is how a world ends — must not keep its slot.
+	var squad2 := DotNpcAiSquad.new(&"beta")
+	var keep := FakeMember.new()
+	squad2.join(keep)
+	var gone := FakeMember.new()
+	squad2.join(gone)
+	squad2.claim(&"attack:p", gone, 1)
+	gone = null
+	_check(squad2.claim(&"attack:p", keep, 1), "a freed member's slot is free",
+		"a squad whose slots belonged to the dead never attacks again")
+	_check(squad2.size() == 1, "and it is no longer a member")
+
+	var registry := DotNpcAiSquads.new()
+	_check(registry.squad(&"x") == registry.squad(&"x"), "one name is one squad")
+	_check(registry.prune() == 1, "and an empty one is pruned")
+	_done()
+
+
+func _test_tactics() -> void:
+	_section("tactics")
+
+	var center := Vector3.ZERO
+	var point := DotNpcAiTactics.ring_point(center, Vector3(10, 0, 0), 4.0)
+	_check(point.distance_to(Vector3(4, 0, 0)) < 0.01, "a ring point holds the NPC's own bearing")
+
+	# The enemy faces +X, so behind it is -X. An NPC beside it works round, a step at a time.
+	var at := Vector3(0, 0, 4)
+	var start := DotNpcAiTactics.angle_from_behind(center, Vector3(1, 0, 0), at)
+
+	for i in 30:
+		at = DotNpcAiTactics.ring_point(center, at, 4.0, Vector3(1, 0, 0), 0.1)
+
+	var finish := DotNpcAiTactics.angle_from_behind(center, Vector3(1, 0, 0), at)
+	_check(finish < start and finish < 0.05, "flanking works round to the back",
+		"%.2f rad from behind, from %.2f" % [finish, start])
+	_check(absf(at.length() - 4.0) < 0.01, "and stays on the ring")
+
+	# Shared out in the order they stand: whoever is furthest round one way gets the place
+	# furthest round that way, so no two cross to reach theirs.
+	var standing := [Vector3(0, 0, 5), Vector3(5, 0, 0), Vector3(0, 0, -5)]
+	var shared := DotNpcAiTactics.spread_bearings(Vector3.ZERO, 0.0, standing, 0.5)
+	_check(
+		shared[2] < shared[1] and shared[1] < shared[0]
+			and is_equal_approx(shared[0] - shared[1], 0.5),
+		"places round a ring are shared out in the order they stand, a step apart",
+		str(shared)
+	)
+
+	var spots := PackedVector3Array([Vector3(1, 0, 0), Vector3(5, 0, 0), Vector3(3, 0, 0)])
+	_check(
+		DotNpcAiTactics.best_of(spots, func(p: Vector3, _i: int) -> float: return p.x) == 1,
+		"the best of a set is the highest score"
+	)
+	_check(
+		DotNpcAiTactics.best_of(spots, func(_p: Vector3, _i: int) -> float: return -INF) == -1,
+		"and a set where everything is ruled out has none"
+	)
+	_done()
+
+
+func _floor() -> StaticBody3D:
+	var floor_body := StaticBody3D.new()
+	var shape := CollisionShape3D.new()
+	var box := BoxShape3D.new()
+	box.size = Vector3(400, 1, 400)
+	shape.shape = box
+	floor_body.add_child(shape)
+	_world.add_child(floor_body)
+	floor_body.global_position = Vector3(0, -1.4, 0)
+	return floor_body
+
+
+func _flat(a: Vector3, b: Vector3) -> float:
+	var d := a - b
+	d.y = 0.0
+	return d.length()
+
+
+func _test_brain_perception() -> void:
+	_section("a brain senses, hears, turns and predicts")
+
+	var floor_body := _floor()
+	var spawner := _spawner()
+	var board := DotNpcAiSounds.new()
+	board.attach(spawner)
+
+	var npc := spawner.spawn(&"searcher", Vector3.ZERO)
+	var brain := npc.brain as DotNpcAiBrain
+	var hidden := npc.def.faction
+	var ctx := brain.context
+
+	spawner.set_candidates([DotNpcSenses.Candidate.new(&"p", Vector3(0, 0, -8), &"player")])
+	spawner.tick(1.0 / 60.0)
+	_check(ctx.has_condition(DotNpcAiConditions.SEE_ENEMY), "seeing somebody is SEE_ENEMY")
+	_check(ctx.has_condition(DotNpcAiConditions.NEW_ENEMY), "and the first sight is NEW_ENEMY")
+	spawner.tick(1.0 / 60.0)
+	_check(not ctx.has_condition(DotNpcAiConditions.NEW_ENEMY), "and only the first")
+
+	spawner.set_candidates([DotNpcSenses.Candidate.new(&"p", Vector3(0, 0, -8), hidden)])
+	spawner.tick(1.0 / 60.0)
+	_check(ctx.has_condition(DotNpcAiConditions.ENEMY_OCCLUDED), "out of sight but held is ENEMY_OCCLUDED")
+
+	for i in 200:
+		spawner.tick(1.0 / 60.0)
+	_check(not npc.has_target(), "(the grace runs out)")
+
+	spawner.damage(npc.instance_id, npc.def.max_health * 0.4, &"")
+	spawner.tick(1.0 / 60.0)
+	_check(
+		ctx.has_condition(DotNpcAiConditions.LIGHT_DAMAGE | DotNpcAiConditions.HEAVY_DAMAGE)
+			and ctx.conditions.has_all(DotNpcAiConditions.LIGHT_DAMAGE | DotNpcAiConditions.HEAVY_DAMAGE),
+		"a big hit is LIGHT and HEAVY damage"
+	)
+	spawner.damage(npc.instance_id, npc.def.max_health * 0.35, &"")
+	spawner.tick(1.0 / 60.0)
+	_check(ctx.has_condition(DotNpcAiConditions.LOW_HEALTH), "and under a third of its health is LOW_HEALTH")
+
+	# Forget everything the earlier part learned, so what follows is the sound's doing.
+	brain.memory.clear()
+
+	# --- Hearing -------------------------------------------------------------
+	var shot_at := npc.position() + Vector3(14, 0, 0)
+	spawner.set_candidates([DotNpcSenses.Candidate.new(&"q", shot_at, hidden)])
+	board.emit(DotNpcAiSounds.Kind.COMBAT, shot_at, 30.0, spawner.now(), 0.5, &"q")
+	spawner.tick(1.0 / 60.0)
+	_check(ctx.has_condition(DotNpcAiConditions.HEAR_COMBAT), "a shot in range is HEAR_COMBAT")
+	_check(
+		brain.memory.get_entry(&"q", ctx.now) != null
+			and brain.memory.get_entry(&"q", ctx.now).source == DotNpcAiMemory.Source.SOUND,
+		"and the shooter is remembered as heard, not seen"
+	)
+	spawner.tick(1.0 / 60.0)
+	_check(not ctx.has_condition(DotNpcAiConditions.HEAR_COMBAT), "a sound is heard once")
+
+	var before := _flat(npc.position(), shot_at)
+	for i in 120:
+		spawner.tick(1.0 / 60.0)
+	_check(
+		_flat(npc.position(), shot_at) < before - 3.0,
+		"it goes to look where the shot came from",
+		"%.1f m from %.1f m" % [_flat(npc.position(), shot_at), before]
+	)
+
+	# --- Danger --------------------------------------------------------------
+	brain.memory.clear()
+	spawner.set_candidates([])
+	var landed := npc.position() + Vector3(0.5, 0, 0)
+	board.emit(DotNpcAiSounds.Kind.DANGER, landed, 20.0, spawner.now(), 3.0, &"", 4.0)
+	spawner.tick(1.0 / 60.0)
+	_check(ctx.has_condition(DotNpcAiConditions.HEAR_DANGER), "a grenade landing is HEAR_DANGER")
+
+	for i in 90:
+		spawner.tick(1.0 / 60.0)
+	_check(
+		_flat(npc.position(), landed) > 4.0,
+		"and it is out of the blast before it goes off",
+		"%.1f m from it" % _flat(npc.position(), landed)
+	)
+	_check(int(brain.get(&"flees")) > 0, "because fleeing came first in its tree")
+
+	for i in 150:
+		spawner.tick(1.0 / 60.0)
+	_check(not brain.in_danger(), "and the danger is over when it is over")
+
+	# --- Turning -------------------------------------------------------------
+	var turner := DotNpcAiCharacter.normal()
+	turner.view_turn_deg = 90.0
+	turner.view_factor = 1.0
+	brain.character = turner
+	spawner.tick(1.0 / 60.0)
+
+	var facing_before := npc.facing()
+	brain._facing_at_tick = facing_before
+	brain.face(-facing_before)
+	var turned := rad_to_deg(facing_before.angle_to(npc.facing()))
+	_check(
+		turned > 0.0 and turned <= 90.0 / 60.0 + 0.05,
+		"an NPC turns no faster than its character can",
+		"%.2f deg in one tick at 90 deg/s" % turned
+	)
+
+	# --- Prediction ----------------------------------------------------------
+	brain.memory.clear()
+	var tactical := DotNpcAiCharacter.nightmare()
+	tactical.memory_time = 6.0
+	brain.character = tactical
+	var runner := npc.position() + Vector3(0, 0, -6)
+	for i in 30:
+		runner += Vector3(4.0 / 60.0, 0, 0)
+		spawner.set_candidates([DotNpcSenses.Candidate.new(&"r", runner, &"player")])
+		spawner.tick(1.0 / 60.0)
+
+	spawner.set_candidates([DotNpcSenses.Candidate.new(&"r", runner, hidden)])
+	var entry := brain.memory.get_entry(&"r", ctx.now)
+	_check(entry != null and entry.velocity.x > 2.0, "a runner's speed is measured while it is seen",
+		"%.2f m/s" % (entry.velocity.x if entry != null else 0.0))
+
+	var goal := brain.memory.predict_entry(entry, ctx.now + 1.0, brain.tactics())
+	_check(
+		goal.x > runner.x + 2.0,
+		"and a tactical NPC looks for it where it was going, not where it was",
+		"%.1f m ahead of the last sighting" % (goal.x - runner.x)
+	)
+
+	_world.remove_child(spawner)
+	spawner.free()
+	floor_body.queue_free()
+	_done()
+
+
+func _test_squad_on_real_npcs() -> void:
+	_section("a squad on real NPCs")
+
+	var floor_body := _floor()
+	var spawner := _spawner()
+	var squads := DotNpcAiSquads.new()
+	squads.attach(spawner)
+
+	# A spotter in range and a second one forty metres away, out of its sight.
+	var spotter := spawner.spawn(&"soldier", Vector3(0, 0, 0))
+	var distant := spawner.spawn(&"soldier", Vector3(40, 0, 0))
+	var a := spotter.brain as DotNpcAiBrain
+	var b := distant.brain as DotNpcAiBrain
+
+	_check(a.squad != null and a.squad == b.squad, "a squad named in the catalogue is joined")
+	_check(a.character.id == &"hard", "with the catalogue's character")
+
+	spawner.set_candidates([DotNpcSenses.Candidate.new(&"p", Vector3(-6, 0, 0), &"player")])
+	for i in 3:
+		spawner.tick(1.0 / 60.0)
+
+	_check(a.npc.has_target() and not b.npc.has_target(), "only the near one can see them")
+	var told := b.memory.get_entry(&"p", b.context.now)
+	_check(told != null and told.source == DotNpcAiMemory.Source.SQUAD,
+		"but the far one knows where they are, second-hand")
+
+	var start := _flat(distant.position(), Vector3(-6, 0, 0))
+	for i in 120:
+		spawner.tick(1.0 / 60.0)
+	_check(
+		_flat(distant.position(), Vector3(-6, 0, 0)) < start - 4.0,
+		"and comes to help without ever having seen them",
+		"%.1f m from %.1f m" % [_flat(distant.position(), Vector3(-6, 0, 0)), start]
+	)
+	_world.remove_child(spawner)
+	spawner.free()
+
+	# --- Slots, the ring, and the next one stepping in ---------------------------------
+	var spawner2 := _spawner()
+	DotNpcAiSquads.new().attach(spawner2)
+
+	var player := Vector3(0, 0, -12)
+	var soldiers: Array[DotNpcInstance] = []
+	for x in [-3.0, 0.0, 3.0, 6.0]:
+		soldiers.append(spawner2.spawn(&"soldier", Vector3(x, 0, 0)))
+
+	spawner2.set_candidates([DotNpcSenses.Candidate.new(&"p", player, &"player")])
+
+	for i in 360:
+		spawner2.tick(1.0 / 60.0)
+
+	var holders: Array[DotNpcInstance] = []
+	for s in soldiers:
+		if (s.brain as DotNpcAiBrain).holds_attack_slot():
+			holders.append(s)
+
+	_check(holders.size() == 1, "one attack slot, one attacker", "%d hold it" % holders.size())
+
+	var on_ring := 0
+	for s in soldiers:
+		if not holders.has(s) and absf(_flat(s.position(), player) - 4.0) < 1.5:
+			on_ring += 1
+	_check(on_ring == 3, "and the rest wait on the ring rather than in a queue",
+		"%d of 3 on it" % on_ring)
+
+	# Apart, not merely on the ring. The first surround passed the check above with all
+	# three waiters on one spot of it, forty centimetres apart: each walked at "directly
+	# behind" and they arrived together. A trace, not a check, showed it — this is the check.
+	var closest := INF
+	for s1 in soldiers:
+		for s2 in soldiers:
+			if s1 != s2 and not holders.has(s1) and not holders.has(s2):
+				closest = minf(closest, _flat(s1.position(), s2.position()))
+	_check(closest > 1.2, "and spread round it rather than heaped on one spot of it",
+		"closest pair %.2f m apart" % closest)
+
+	var attacker := holders[0] if not holders.is_empty() else soldiers[0]
+	var look := attacker.position() - player
+	look.y = 0.0
+	var behind := 0
+	for s in soldiers:
+		if s != attacker and DotNpcAiTactics.angle_from_behind(player, look.normalized(), s.position()) < PI * 0.5:
+			behind += 1
+	_check(behind >= 1, "and they have worked round the side the player is not looking at",
+		"%d behind the player's shoulder line" % behind)
+
+	spawner2.damage(attacker.instance_id, 99999.0, &"p")
+	for i in 30:
+		spawner2.tick(1.0 / 60.0)
+
+	var next := 0
+	for s in spawner2.all_npcs():
+		if (s.brain as DotNpcAiBrain).holds_attack_slot():
+			next += 1
+	_check(next == 1, "and when the attacker falls, the next one steps in")
+
+	# --- Cover, one NPC per spot -----------------------------------------------------
+	var builder := DotNpcNavBuilder.new()
+	builder.spacing = 2.0
+	builder.add_floor(AABB(Vector3(-12, 0, -12), Vector3(24, 0, 24)), 0.0)
+	builder.add_obstacle(AABB(Vector3(-1, 0, -10), Vector3(2, 3, 20)))
+	var nav := builder.build(&"cover", "digest")
+	var adopted := spawner2.set_nav_data(nav)
+
+	var threat := Vector3(-10, 0, 0)
+	var survivors := spawner2.all_npcs()
+	var first := (survivors[0].brain as DotNpcAiBrain).find_cover(threat)
+	var second := (survivors[1].brain as DotNpcAiBrain).find_cover(threat)
+	_check(adopted.ok and first != Vector3.INF, "an NPC finds cover from a threat")
+	var spot_index := nav.cover_positions.find(first)
+	var covers := spot_index >= 0 and nav.cover_normals[spot_index].dot(
+		(threat - first).normalized()
+	) >= 0.25
+	_check(covers, "with its wall between it and the threat", "spot %s" % str(first))
+	_check(second != Vector3.INF and second.distance_to(first) > 0.5,
+		"and its squadmate takes a different spot rather than the same one")
+
+	_world.remove_child(spawner2)
+	spawner2.free()
+	floor_body.queue_free()
+	_done()
+
+
+func _test_heatmap() -> void:
+	_section("learning where players go")
+
+	var heat := DotNpcAiHeatmap.new()
+	heat.cell_size = 3.0
+	heat.half_life = 10.0
+
+	for i in 20:
+		heat.record(DotNpcAiHeatmap.TRAFFIC, Vector3(10, 0, 0), 0.0)
+	heat.record(DotNpcAiHeatmap.TRAFFIC, Vector3(-10, 0, 0), 0.0)
+
+	_check(
+		is_equal_approx(heat.value_at(DotNpcAiHeatmap.TRAFFIC, Vector3(10.5, 0, 0.5), 0.0), 20.0),
+		"recording adds up in a cell"
+	)
+	_check(
+		is_equal_approx(heat.value_at(DotNpcAiHeatmap.TRAFFIC, Vector3(10, 0, 0), 10.0), 10.0),
+		"and halves every half-life"
+	)
+
+	var hot := heat.hottest(DotNpcAiHeatmap.TRAFFIC, Vector3.ZERO, 30.0, 0.0, 2)
+	_check(hot.size() == 2 and hot[0].distance_to(Vector3(10.5, 0, 1.5)) < 3.0,
+		"the hottest place comes first", str(hot))
+	_check(heat.hottest(DotNpcAiHeatmap.TRAFFIC, Vector3(100, 0, 0), 5.0, 0.0).is_empty(),
+		"and nothing is hot where nobody has been")
+
+	# A corridor: traffic heavier to the east. Somebody waiting in it watches the east.
+	var lane := DotNpcAiHeatmap.new()
+	for x in range(0, 8):
+		for i in x + 1:
+			lane.record(DotNpcAiHeatmap.TRAFFIC, Vector3(x * 3.0 + 1.0, 0, 1.0), 0.0)
+	var flow := lane.flow_at(DotNpcAiHeatmap.TRAFFIC, Vector3(10, 0, 1), 0.0)
+	_check(flow.x > 0.9, "the flow points to where the traffic comes from", str(flow))
+
+	var path := "user://npc_ai_selftest_heat.json"
+	var saved := heat.save(path, 0.0)
+	var loaded := DotNpcAiHeatmap.load_from(path, 500.0)
+	_check(saved.ok and loaded.ok, "a heat map is saved and loaded")
+	_check(
+		loaded.ok and is_equal_approx(
+			(loaded.value as DotNpcAiHeatmap).value_at(DotNpcAiHeatmap.TRAFFIC, Vector3(10, 0, 0), 500.0), 20.0
+		),
+		"carrying its weights onto a clock that started again"
+	)
+	DirAccess.remove_absolute(ProjectSettings.globalize_path(path))
+	_check(DotNpcAiHeatmap.load_from("user://never_played.json").ok, "a map nobody has played is an empty one, not an error")
+	_check(not DotNpcAiHeatmap.from_dictionary({"cell_size": 0.0}).ok, "a cell size of nothing is refused")
+
+	var small := DotNpcAiHeatmap.new()
+	small.capacity = 4
+	for i in 10:
+		small.record(DotNpcAiHeatmap.TRAFFIC, Vector3(i * 10.0, 0, 0), 0.0, float(i + 1))
+	_check(small.cell_count(DotNpcAiHeatmap.TRAFFIC) <= 5, "and it is bounded, the coldest going first")
+	_check(small.value_at(DotNpcAiHeatmap.TRAFFIC, Vector3(90, 0, 0), 0.0) == 10.0, "keeping the hottest")
+
+	# The keeper: per map, across a change of map and back, and a reload that does not save.
+	var dir := "user://npc_ai_selftest_heat"
+	var keeper := DotNpcAiHeatKeeper.new(dir, "test")
+	keeper.save_every = 1000.0
+	for i in 60:
+		keeper.tick(1.0 / 60.0, &"a", [Vector3(3, 0, 3)], float(i) / 60.0)
+	_check(keeper.heatmap.value_at(DotNpcAiHeatmap.TRAFFIC, Vector3(3, 0, 3), 1.0) > 0.5,
+		"the keeper samples players on its interval")
+
+	keeper.tick(1.0 / 60.0, &"b", [], 1.0)
+	_check(keeper.map_id == &"b" and keeper.heatmap.cell_count(DotNpcAiHeatmap.TRAFFIC) == 0,
+		"a new map starts with what that map has learned, not the last one's")
+	keeper.tick(1.0 / 60.0, &"a", [], 1.1)
+	_check(keeper.heatmap.value_at(DotNpcAiHeatmap.TRAFFIC, Vector3(3, 0, 3), 1.1) > 0.5,
+		"and going back to the first map gets its learning back from disk")
+
+	keeper.heatmap = DotNpcAiHeatmap.new()
+	keeper.adopt(&"a", 1.2)
+	_check(keeper.heatmap.value_at(DotNpcAiHeatmap.TRAFFIC, Vector3(3, 0, 3), 1.2) > 0.5,
+		"re-adopting the map it holds reloads it without saving over the file first")
+
+	for file in DirAccess.get_files_at(dir):
+		DirAccess.remove_absolute(ProjectSettings.globalize_path(dir + "/" + file))
+	DirAccess.remove_absolute(ProjectSettings.globalize_path(dir))
+	_done()
+
+
+func _test_ranged_and_roles() -> void:
+	_section("shooting, roles and patrols on real NPCs")
+
+	var floor_body := _floor()
+	var spawner := _spawner()
+	DotNpcAiSquads.new().attach(spawner)
+
+	var a := spawner.spawn(&"soldier", Vector3(0, 0, 0))
+	var b := spawner.spawn(&"soldier", Vector3(3, 0, 0))
+	var ba := a.brain as DotNpcAiBrain
+	var bb := b.brain as DotNpcAiBrain
+
+	var runner := Vector3(0, 0, -15)
+	for i in 30:
+		runner += Vector3(5.0 / 60.0, 0, 0)
+		spawner.set_candidates([DotNpcSenses.Candidate.new(&"p", runner, &"player")])
+		spawner.tick(1.0 / 60.0)
+
+	_check(ba.claim_role(DotNpcAiBrain.ROLE_SUPPRESS, 1) != bb.claim_role(DotNpcAiBrain.ROLE_SUPPRESS, 1),
+		"one role of one place goes to one of two")
+
+	var holder := ba if ba.holds_role(DotNpcAiBrain.ROLE_SUPPRESS) else bb
+	var other := bb if holder == ba else ba
+	spawner.set_candidates([DotNpcSenses.Candidate.new(&"q", Vector3(0, 0, 5), &"player")])
+	for i in 200:
+		spawner.tick(1.0 / 60.0)
+	_check(other.claim_role(DotNpcAiBrain.ROLE_SUPPRESS, 1) and holder.npc.target_id == &"q",
+		"and a new target lets go of every role on the old one")
+
+	# Aim. A nightmare leads a runner by what it SAW of them.
+	var shooter := DotNpcAiCharacter.nightmare()
+	shooter.aim_accuracy = 1.0
+	shooter.aim_skill = 1.0
+	shooter.fire_throttle = 1.0
+	ba.character = shooter
+	var moving := Vector3(0, 0, -15)
+	for i in 30:
+		moving += Vector3(5.0 / 60.0, 0, 0)
+		spawner.set_candidates([DotNpcSenses.Candidate.new(&"m", moving, &"player")])
+		spawner.tick(1.0 / 60.0)
+	var muzzle := a.position()
+	var aimed := ba.aim_solution(muzzle, 30.0)
+	_check(aimed.x > moving.x + 1.0, "aim leads a runner by the speed it saw",
+		"aimed %.2f m ahead" % (aimed.x - moving.x))
+	var before_shots := ba.shots_fired
+	var _again := ba.aim_solution(muzzle, 30.0)
+	_check(ba.shots_fired == before_shots + 1, "and every aim is a new shot")
+
+	# Facing gates firing: turned away, it may not; once its turn rate brings it round, it may.
+	ba._facing_at_tick = -a.facing()
+	ba.face(-(moving - a.position()))
+	_check(not ba.ready_to_fire(muzzle + Vector3(0, 1, 0)), "it cannot fire at what it is not facing")
+
+	for i in 120:
+		spawner.set_candidates([DotNpcSenses.Candidate.new(&"m", moving, &"player")])
+		spawner.tick(1.0 / 60.0)
+		ba.face(moving - a.position())
+	_check(ba.ready_to_fire(a.position() + Vector3(0, 1, 0), 15.0),
+		"and once it has turned to face them, it can")
+
+	# A squadmate in the lane.
+	var lane_from := a.position()
+	var lane_to := lane_from + Vector3(0, 0, -20)
+	b.node.global_position = lane_from + Vector3(0.2, 0, -10)
+	_check(not ba.fire_lane_clear(lane_from, lane_to), "a squadmate in the lane blocks the shot")
+	b.node.global_position = lane_from + Vector3(5, 0, -10)
+	_check(ba.fire_lane_clear(lane_from, lane_to), "and one out of it does not")
+
+	# A gunner, by its own tree: it backs off into its band and fires once it faces them.
+	var gun := spawner.spawn(&"gunner", Vector3(-20, 0, 20))
+	var bgun := gun.brain as DotNpcAiBrain
+	var still := gun.position() + Vector3(0, 0, -4)
+	for i in 240:
+		spawner.set_candidates([DotNpcSenses.Candidate.new(&"s", still, &"player")])
+		spawner.tick(1.0 / 60.0)
+	var kept := _flat(gun.position(), still)
+	_check(kept >= 7.0 and kept <= 15.0, "a gunner backs off into its range band",
+		"%.1f m away" % kept)
+	_check(int(bgun.get(&"shots")) > 0, "and fires from it", "%d shots" % int(bgun.get(&"shots")))
+
+	_world.remove_child(spawner)
+	spawner.free()
+
+	# Patrolling what players use.
+	var spawner2 := _spawner()
+	var heat := DotNpcAiHeatmap.new()
+	heat.attach(spawner2)
+	var hot_spot := Vector3(12, 0, -9)
+	for i in 50:
+		heat.record(DotNpcAiHeatmap.TRAFFIC, hot_spot, 0.0)
+
+	var guard := spawner2.spawn(&"soldier", Vector3(0, 0, 0))
+	var bg := guard.brain as DotNpcAiBrain
+	spawner2.set_candidates([])
+	for i in 300:
+		spawner2.tick(1.0 / 60.0)
+		bg.patrol_hot(bg.context, 4.0)
+	_check(_flat(guard.position(), hot_spot) < 3.0, "with nobody to fight, a smart NPC goes where players go",
+		"%.1f m from the busiest cell" % _flat(guard.position(), hot_spot))
+
+	bg.character = DotNpcAiCharacter.easy()
+	spawner2.tick(1.0 / 60.0)
+	_check(bg.patrol_hot(bg.context, 4.0) == DotNpcAiNode.Status.FAILURE,
+		"and a dull one does not know the map")
+
+	_world.remove_child(spawner2)
+	spawner2.free()
+	floor_body.queue_free()
 	_done()
