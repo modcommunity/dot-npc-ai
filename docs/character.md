@@ -24,7 +24,7 @@ Everything that decides by chance here (aim error, `RandomChance`, the weighted 
 
 The mixer is kept in the positive half of a signed 64-bit int at every step. GDScript's `>>` sign-extends, so one that is allowed to go negative shifts ones in from the top and stops being uniform: dot-combat's half-moon bug in a different costume. The suite checks all four quadrants rather than the magnitude, because a magnitude check passes for a half-moon.
 
-**Give each NPC its own seed.** A preset is one resource; twenty NPCs sharing it share a seed, so every one takes the same shot with the same error at the same moment. It reads as a firing squad. `with_seed()` is the call, and `DotNpcAiBrain` makes it for a brain that did not.
+**Give each NPC its own seed.** A preset is one resource; twenty NPCs sharing it share a seed, so every one takes the same shot with the same error at the same moment. It reads as a firing squad. `with_seed()` is the call, and `DotNpcAiBrain` makes it for a brain that did not, from `npc.seed`. That is dot-npc's per-spawn seed and never the engine object id, which moves whenever anything else is allocated first, so a replay would disagree with its recording. A brain that seeds itself does the same: `with_seed(npc.seed)`, and `deterministic_unit(npc.seed, salt)` for its own rolls.
 
 ## The server's skill, which is not a difficulty setting
 

@@ -1676,8 +1676,9 @@ func _test_brain_under_a_skill() -> void:
 		"and a character named in the catalogue is the one it has"
 	)
 	_check(
-		brain.character.seed_value == npc.instance_id or npc.instance_id <= 1,
-		"seeded from its instance"
+		brain.character.seed_value == npc.seed and npc.seed > 1,
+		"seeded from the NPC's stable seed, not its object id",
+		"seed %d, character %d" % [npc.seed, brain.character.seed_value]
 	)
 	_check(brain.context.character == brain.character, "and the tree sees the same one")
 

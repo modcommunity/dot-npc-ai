@@ -21,7 +21,7 @@ extends DotNpcAiComposite
 ## [codeblock]
 ## var search := DotNpcAiRandomSelector.new(&"search", [go_left, go_right, wait])
 ## search.set_weights([2.0, 2.0, 1.0])       # waiting is half as likely
-## search.salt = npc.instance_id             # and these three do not agree
+## search.salt = npc.seed                    # and these three do not agree
 ## [/codeblock]
 
 ## One weight per child. Missing or short, every child weighs 1.
@@ -30,7 +30,8 @@ var weights: PackedFloat32Array = PackedFloat32Array()
 ## Mixed into the roll so two of these in one tree — or on two NPCs — disagree.
 ##
 ## Leaving it at zero is a working selector that every NPC in the world agrees with,
-## which is the thing this node exists to prevent. A game sets it to the instance id.
+## which is the thing this node exists to prevent. A game sets it to the NPC's seed
+## ([member DotNpcInstance.seed]), never its instance id: that moves between runs.
 var salt: int = 0
 
 ## Whether a chosen child that fails ends this node, or the next one is tried.

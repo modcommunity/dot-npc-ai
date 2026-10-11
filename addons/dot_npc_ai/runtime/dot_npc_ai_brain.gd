@@ -362,8 +362,10 @@ func _seeded(from: DotNpcAiCharacter) -> DotNpcAiCharacter:
 	if from == null:
 		return null
 
-	if from.seed_value <= 1 and npc != null and npc.instance_id != 0:
-		return from.with_seed(npc.instance_id)
+	# [member DotNpcInstance.seed], never `instance_id`: the object id moves when anything
+	# else in the process is created first, and every choice drawn from it moved with it.
+	if from.seed_value <= 1 and npc != null and npc.seed != 0:
+		return from.with_seed(npc.seed)
 
 	return from
 
@@ -1102,7 +1104,7 @@ func hold_range(
 
 	var toward := to / distance
 	var side := Vector3(-toward.z, 0.0, toward.x)
-	var period := 2.5 + 2.0 * DotNpcAiNode.deterministic_unit(npc.instance_id, 4421)
+	var period := 2.5 + 2.0 * DotNpcAiNode.deterministic_unit(npc.seed, 4421)
 	var drift := 1.0 if fmod(ctx.now / period, 2.0) < 1.0 else -1.0
 	var wanted := side * drift * 0.6
 
@@ -1152,7 +1154,7 @@ func patrol_hot(ctx: DotNpcAiContext, speed: float, radius: float = 40.0) -> Dot
 		# many it has visited, so a pack does not all stand on one cell and one NPC does not
 		# guard the same doorway for ever.
 		var visits := blackboard.get_int(KEY_PATROL_VISITS, ctx.now, 0)
-		var pick := int(DotNpcAiNode.deterministic_unit(npc.instance_id, visits + 1) * hot.size())
+		var pick := int(DotNpcAiNode.deterministic_unit(npc.seed, visits + 1) * hot.size())
 		goal = Vector3(hot[mini(pick, hot.size() - 1)].x, here.y, hot[mini(pick, hot.size() - 1)].z)
 		blackboard.put(KEY_PATROL_GOAL, goal, ctx.now)
 		blackboard.erase(KEY_PATROL_ARRIVED)

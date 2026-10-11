@@ -57,7 +57,7 @@ Read the family [CLAUDE.md](../../CLAUDE.md) first; this file is only what is sp
 
 **Character and skill**
 
-- Chance goes through the seeded integer hash, never `randf`; keep the mixer non-negative (`>>` sign-extends). Each NPC gets its own seed (`with_seed()`). [character](docs/character.md#the-randomness-is-reproducible-and-that-was-not-free)
+- Chance goes through the seeded integer hash, never `randf`; keep the mixer non-negative (`>>` sign-extends). Each NPC gets its own seed (`with_seed()`) from dot-npc's `npc.seed`, never `instance_id` (the object id moves between runs). [character](docs/character.md#the-randomness-is-reproducible-and-that-was-not-free)
 - `has_reacted()` measures from `target_since`, never `engaged_at`. [character](docs/character.md#the-reaction-clock-is-target_since-not-engaged_at)
 - `nightmare()` keeps reaction above zero and accuracy below one; `npc_reaction_min` floors it. [character](docs/character.md#why-a-tree-alone-is-not-an-npc)
 - `DotNpcAiSkill` moves ability, never personality, only in the direction asked, from `base_character`, and lives on the director as metadata, never in `DotRegistry`. `bind_cvars` reads the value back after registering. [character](docs/character.md#the-servers-skill-which-is-not-a-difficulty-setting)
