@@ -3,7 +3,7 @@ extends RefCounted
 
 ## The steering an NPC needs once there are ninety of them pathing to the same door.
 ##
-## [b]This is the gap dot-npc's CLAUDE.md names.[/b] dot-npc paths and follows; it says
+## [b]This is the gap dot-npc's docs/navigation.md names.[/b] dot-npc paths and follows; it says
 ## nothing about two NPCs that want to be in the same place, because separation is a
 ## behaviour rather than a fact about the world. Without it a horde arriving at a
 ## doorway is a single NPC-shaped stack of ninety bodies, which is both the wrong look
