@@ -19,7 +19,7 @@ const BRAIN := "res://fixtures/zombie_brain.gd"
 const SEARCHER := "res://fixtures/searcher_brain.gd"
 const GUNNER := "res://fixtures/gunner_brain.gd"
 
-const CHECKS := 313
+const CHECKS := 316
 
 ## Sections entered against sections that ran to their last line, and against this. A
 ## runtime error inside a section aborts that function and nothing says so; a section that
@@ -1350,6 +1350,16 @@ func _test_brain_on_a_real_npc() -> void:
 	_check(brain.machine != null and brain.tree != null, "with both halves built")
 	_check(brain.machine.current() == &"idle", "starting in its initial state")
 
+	# Steering at somewhere and getting nowhere for stuck_seconds asks for an unsmoothed path.
+	if brain.path == null:
+		brain.path = DotNpcPath.new()
+	brain._watch_progress(Vector3.ZERO, Vector3(10, 0, 0))
+	brain._progress_since -= brain.stuck_seconds + 0.1
+	brain._watch_progress(Vector3(0.1, 0, 0), Vector3(10, 0, 0))
+	_check(brain.path.rough_until > spawner.now(), "an NPC making no headway is given the graph's own corners",
+		"rough until %.2f, now %.2f" % [brain.path.rough_until, spawner.now()])
+	brain.path.rough_until = -INF
+
 	spawner.set_candidates([
 		DotNpcSenses.Candidate.new(&"player", Vector3(0, 0, -12), &"player")
 	])
@@ -2022,6 +2032,12 @@ func _test_squad() -> void:
 	_check(squad2.claim(&"attack:p", keep, 1), "a freed member's slot is free",
 		"a squad whose slots belonged to the dead never attacks again")
 	_check(squad2.size() == 1, "and it is no longer a member")
+
+	# The per-tick memo the surround shares: kept for one clock reading, gone at the next.
+	squad2.remember(&"k", 5.0, 42)
+	_check(squad2.memo(&"k", 5.0) == 42 and squad2.memo(&"k", 5.5) == null and squad2.memo(&"k", 5.0) == null,
+		"a squad's memo answers for one clock reading and forgets at the next")
+	_check(squad2.holder_ids(&"attack:p").size() == 1, "holder_ids lists who holds a slot")
 
 	var registry := DotNpcAiSquads.new()
 	_check(registry.squad(&"x") == registry.squad(&"x"), "one name is one squad")

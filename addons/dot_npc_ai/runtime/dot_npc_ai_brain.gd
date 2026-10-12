@@ -771,14 +771,33 @@ func surround(
 		return DotNpcAiNode.Status.FAILURE
 
 	var here := npc.position()
-	var group := _waiting_with()
-	var positions: Array = []
+	var group: Array
+	var positions: Array
+	var facing: Vector3
 
-	for member in group:
-		positions.append((member as DotNpcAiBrain).npc.position())
+	# Who is waiting on this target and which way it faces are the same answer for every
+	# waiter in a tick: worked out by the first to ask and shared through the squad.
+	var now := _world_now()
+	var key := &"" if squad == null else StringName("surround:" + String(npc.target_id))
+	var shared: Variant = squad.memo(key, now) if squad != null else null
+
+	if shared is Array and (shared[0] as Array).has(self):
+		group = shared[0]
+		positions = shared[1]
+		facing = shared[2]
+	else:
+		group = _waiting_with()
+		positions = []
+
+		for member in group:
+			positions.append((member as DotNpcAiBrain).npc.position())
+
+		facing = _enemy_facing(center)
+
+		if squad != null:
+			squad.remember(key, now, [group, positions, facing])
 
 	var focus := DotNpcAiTactics.mean_bearing(center, positions)
-	var facing := _enemy_facing(center)
 
 	if facing.length_squared() > 0.0001:
 		var behind := atan2(-facing.z, -facing.x)
@@ -821,7 +840,7 @@ func _waiting_with() -> Array:
 	if squad == null or not npc.has_target():
 		return out
 
-	var slot := _attack_slot()
+	var holding := squad.holder_ids(_attack_slot())
 	out.clear()
 
 	for member in squad.members():
@@ -830,7 +849,7 @@ func _waiting_with() -> Array:
 		if other == null or other.npc == null or not other.npc.is_alive():
 			continue
 
-		if other.npc.target_id != npc.target_id or squad.holds(slot, other):
+		if other.npc.target_id != npc.target_id or holding.has(other.get_instance_id()):
 			continue
 
 		out.append(other)
@@ -847,7 +866,7 @@ func _waiting_with() -> Array:
 ## what is hitting them — or along its velocity, or nowhere.
 func _enemy_facing(center: Vector3) -> Vector3:
 	if squad != null and npc.has_target():
-		var slot := _attack_slot()
+		var holding := squad.holder_ids(_attack_slot())
 		var nearest := Vector3.INF
 
 		for member in squad.members():
@@ -856,7 +875,7 @@ func _enemy_facing(center: Vector3) -> Vector3:
 			if other == null or other == self or other.npc == null or not other.npc.is_alive():
 				continue
 
-			if not squad.holds(slot, other):
+			if not holding.has(other.get_instance_id()):
 				continue
 
 			var at := other.npc.position()
@@ -1385,6 +1404,34 @@ func steer_with_spacing(
 		return
 
 	steer_toward(here + direction * 4.0, speed, delta)
+	_watch_progress(here, to)
+
+
+## Seconds an NPC steering at somewhere more than a couple of metres off may make no headway
+## before its path is asked for again without smoothing (dot-npc's `DotNpcPath.go_rough`).
+var stuck_seconds: float = 1.5
+
+var _progress_at: Vector3 = Vector3.INF
+var _progress_since: float = 0.0
+
+
+## Notices an NPC that is steering and not getting anywhere, and gives it the graph's own corners
+## for a few seconds. A smoothed path on a coarse graph cuts the corner of a door jamb thinner
+## than its spacing, and the NPC presses into the jamb for as long as the path lasts: on
+## game-zombie-zone's ballpark, specials and commons stood at the tunnels' doors for minutes and
+## the waves ended on their overtime. Duck-typed, so an older dot-npc without it is left alone.
+func _watch_progress(here: Vector3, goal: Vector3) -> void:
+	var now := _world_now()
+
+	if _progress_at == Vector3.INF or here.distance_to(_progress_at) > 0.5 or here.distance_to(goal) < 2.0:
+		_progress_at = here
+		_progress_since = now
+		return
+
+	if now - _progress_since >= stuck_seconds and path != null and path.has_method(&"go_rough"):
+		path.call(&"go_rough", now, 4.0)
+		_progress_at = here
+		_progress_since = now
 
 
 func describe() -> Dictionary:

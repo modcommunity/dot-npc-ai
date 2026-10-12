@@ -52,6 +52,7 @@ Read the family [CLAUDE.md](../../CLAUDE.md) first; this file is only what is sp
 - Never compare a Variant against a sentinel with `!=`; mismatched types are a runtime error. [history](docs/history.md#in-the-addon)
 - Steering returns directions and moves nothing. Separation 0.6 against seek 1.0; `blend` normalises; `wander` is a seeded drifting angle. [decisions](docs/decisions.md#steering-and-the-gap-it-fills)
 - Separation is horizontal with a `tie_break` from `facing()`, never from a node's basis (2D has none). [decisions](docs/decisions.md#steering-and-the-gap-it-fills)
+- `steer_with_spacing` asks for unsmoothed corners after `stuck_seconds` of no headway; what every waiter on one target asks is shared per tick through `DotNpcAiSquad.memo`, keyed by the director's clock. [decisions](docs/decisions.md#steering-and-the-gap-it-fills)
 - NPCs go on their own collision layer and do not collide with each other; separation keeps them apart. [decisions](docs/decisions.md#npcs-should-not-collide-with-each-other)
 - The brain takes the world's clock from the director, never its own from zero. [decisions](docs/decisions.md#the-brains-clock)
 

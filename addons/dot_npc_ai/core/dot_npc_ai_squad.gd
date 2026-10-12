@@ -33,6 +33,11 @@ var _members: Dictionary = {}
 ## Slot name -> Array of instance ids holding it, oldest first.
 var _slots: Dictionary = {}
 
+## Answers worked out once a tick and shared by every member asking the same question (see
+## [method memo]), and the clock reading they were worked out at.
+var _memo: Dictionary = {}
+var _memo_at: float = -INF
+
 ## How many reports were passed on. For a console command and a suite.
 var shared_count: int = 0
 
@@ -195,6 +200,37 @@ func release_all(key: int) -> void:
 
 func holds(slot: StringName, member: Object) -> bool:
 	return member != null and _live_holders(slot).has(member.get_instance_id())
+
+
+## What was [method remember]ed under [param key] at the clock reading [param now], or null.
+## Everything remembered at an earlier reading is forgotten on the first question at a new one.
+##
+## [b]For the questions every member of a crowd asks about the same target in one tick.[/b]
+## Who else is waiting on a target, and which way the target faces, walk every member and ask
+## each one's slots: eighty zombies on twelve survivors asking it each was six thousand slot
+## lookups a tick, each copying a holder list. Asked once and shared it is eighty.
+## [param now] must be a clock every member reads the same (the director's), not a brain's own.
+func memo(key: Variant, now: float) -> Variant:
+	if now != _memo_at:
+		_memo.clear()
+		_memo_at = now
+		return null
+
+	return _memo.get(key)
+
+
+func remember(key: Variant, now: float, value: Variant) -> void:
+	if now != _memo_at:
+		_memo.clear()
+		_memo_at = now
+
+	_memo[key] = value
+
+
+## The instance ids holding [param slot] now. One list for a caller about to ask [method holds]
+## of every member, which otherwise copies the holder list once a member.
+func holder_ids(slot: StringName) -> Array:
+	return _live_holders(slot)
 
 
 ## How many hold [param slot] now.
