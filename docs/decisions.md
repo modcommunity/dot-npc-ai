@@ -93,5 +93,5 @@ So: separation keeps NPCs apart, and the physics keeps them out of the walls.
 - **No population or pacing.** That is `dot-npc-ai-director`.
 - **No formations or orders.** A squad here shares what it sees, hands out named roles, shares a ring and claims cover; the roles are claimed, never assigned, so there is no leader issuing a plan. Anything that is one ("you two hold the door") is a game's, and roles are the seam it hangs off.
 - **No animation.** `DotNpcNetSync.State` is what a client picks one with.
-- **No pathfinding.** dot-npc owns that; this steers between the waypoints it gives.
+- **No pathfinding.** dot-npc owns that, and dot-bot's `DotBotNav` owns the navigation mesh; this steers between the waypoints they give. What is here is what a map means to somebody walking it (links, hiding spots, cover, chokepoints, [navigation-annotations.md](navigation-annotations.md)), worked out from a mesh someone else baked and handed to whichever planner a game uses.
 - **No threading.** `DotNpcAiParallel` names the fact that every child gets a tick, not concurrency. An NPC has never needed a scheduler.

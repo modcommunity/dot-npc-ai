@@ -14,6 +14,7 @@ Read the family [CLAUDE.md](../../CLAUDE.md) first; this file is only what is sp
 | [docs/decisions.md](docs/decisions.md) | the tree, the machine, decorators, the blackboard, steering, collision between NPCs, what is deliberately not here |
 | [docs/character.md](docs/character.md) | `DotNpcAiCharacter`, randomness, `DotNpcAiSkill`, memory, `search()`, `damaged` |
 | [docs/tactics.md](docs/tactics.md) | conditions, sounds, squads, cover, shooting, roles, the heatmap |
+| [docs/navigation-annotations.md](docs/navigation-annotations.md) | map annotations: links, hiding spots, cover, chokepoints, islands, the cache |
 | [docs/history.md](docs/history.md) | the bugs, and how each looked |
 
 ## Layout
@@ -25,6 +26,10 @@ Read the family [CLAUDE.md](../../CLAUDE.md) first; this file is only what is sp
 | `addons/dot_npc_ai/core/` | blackboard, context, conditions, character, skill, memory, sounds, squad(s), heatmap and heat keeper |
 | `addons/dot_npc_ai/steer/` | `DotNpcAiSteering` (directions only), `DotNpcAiTactics` (scoring places to stand) |
 | `addons/dot_npc_ai/runtime/` | `DotNpcAiBrain`: the one file that joins this to dot-npc |
+| `addons/dot_npc_ai/annotate/` | `DotNpcAiNavAnnotator` (a `DotJob` over a `NavigationMesh` and a `World3D`), `DotNpcAiNavAnnotations` (the result, saved per cache key), `DotNpcAiNavDebug` (draws it) |
+| `addons/dot_npc_ai/dot_npc_ai_api.gd` | the API level (2: map annotations), preloaded by path like every addon's |
+| `fixtures/nav_toy_level.gd` | a level built in code with one of everything the annotator looks for, and the bake DotBotNav would do |
+| `tools/annotate_map.gd` | annotates the toy or a saved map (`--source map.res --meta map_meta.json`), prints counts and the slowest slice, photographs it (`--out PREFIX`, under xvfb-run) |
 | `examples/npc_ai_selftest.tscn` | the suite; its last sections run twelve real NPCs through a real physics world |
 | `tools/trace_surround.gd`, `tools/plot_trace.py` | a top-down trace of a squad moving (`TRACE_KIND=gunner` for the gunner) |
 
@@ -65,6 +70,15 @@ Read the family [CLAUDE.md](../../CLAUDE.md) first; this file is only what is sp
 - A new character field must be read by something; `alertness` and `memory_time` were decoration until they were wired to `sight_scale` and memory. [character](docs/character.md#alertness-and-memory_time-reach-the-senses)
 - Being hurt is handled in the brain's `damaged`; game brains override `_npc_damaged` without `super`. [character](docs/character.md#memory-search-and-being-hurt)
 
+**Map annotations**
+
+- The annotator takes engine types only; it never names a navigation class of dot-npc or dot-bot. [navigation-annotations](docs/navigation-annotations.md#where-it-sits)
+- Rays see a body only after the physics server has stepped with it: wait physics frames before running it. A trimesh with backface collision gives no usable normal; a box hit from inside reports its own start with a zero normal (the solid test uses that). [navigation-annotations](docs/navigation-annotations.md#what-it-finds-and-how)
+- Drop and jump-up depth is mesh floor to mesh floor, never to a ray's hit; a lip within a step is not a gap. Both were wrong with every count passing. [navigation-annotations](docs/navigation-annotations.md#looked-at)
+- Give it `seeds` (spawns, teleport destinations): without them a sealed map's roof is its largest island. [navigation-annotations](docs/navigation-annotations.md#what-it-finds-and-how)
+- Every phase is sliced; a new phase must be too (a browser has only the main thread). Anything that changes the output goes in `settings()` or bumps `VERSION`, or a stale cache is served. [navigation-annotations](docs/navigation-annotations.md#the-frame-budget-and-the-browser)
+- Any change to it wants `tools/annotate_map.gd --out` rendered and looked at.
+
 **Tactics**
 
 - Squads and sounds go on the director as metadata (two servers per process). [tactics](docs/tactics.md#everything-is-automatic-once-the-director-carries-it)
@@ -102,5 +116,6 @@ Read the family [CLAUDE.md](../../CLAUDE.md) first; this file is only what is sp
 | How a squad splits the work | `claim_role` with `ROLE_ATTACK`, `ROLE_SUPPRESS`, `ROLE_FLANK` or a game's own |
 | How a ranged NPC keeps its distance | `hold_range` |
 | What the NPCs learn of a map | `DotNpcAiHeatmap`, kept per map by `DotNpcAiHeatKeeper`; patrolled with `patrol_hot` |
+| What a map offers (drops, jumps, hiding spots, cover, chokepoints) | `DotNpcAiNavAnnotator` over the bake, cached by `cache_key()`; `_keep_link`, `_hide_score`, `los_fn`, `declare`, `seeds`, the `npc_nav_*` cvars |
 
-Deliberately not here: an editor, utility scoring of decisions, chat and barks, weapon knowledge, population and pacing (dot-npc-ai-director), formations and orders, animation, pathfinding (dot-npc), threading. [decisions](docs/decisions.md#deliberately-not-here)
+Deliberately not here: an editor, utility scoring of decisions, chat and barks, weapon knowledge, population and pacing (dot-npc-ai-director), formations and orders, animation, pathfinding (dot-npc and dot-bot's DotBotNav; the annotations here only add links and places to them), threading. [decisions](docs/decisions.md#deliberately-not-here)

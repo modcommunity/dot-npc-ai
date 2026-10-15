@@ -19,13 +19,13 @@ const BRAIN := "res://fixtures/zombie_brain.gd"
 const SEARCHER := "res://fixtures/searcher_brain.gd"
 const GUNNER := "res://fixtures/gunner_brain.gd"
 
-const CHECKS := 316
+const CHECKS := 348
 
 ## Sections entered against sections that ran to their last line, and against this. A
 ## runtime error inside a section aborts that function and nothing says so; a section that
 ## bailed out early after a failed guard is counted as not finished on purpose. The CHECKS
 ## total is the other half — see docs/testing.md.
-const SECTIONS := 32
+const SECTIONS := 33
 
 var _passed := 0
 var _failed := 0
@@ -80,6 +80,7 @@ func _run() -> void:
 	_test_squad_on_real_npcs()
 	_test_heatmap()
 	_test_ranged_and_roles()
+	await _test_nav_annotations()
 
 	print("")
 	print("%d passed, %d failed" % [_passed, _failed])
@@ -2550,4 +2551,199 @@ func _test_ranged_and_roles() -> void:
 	_world.remove_child(spawner2)
 	spawner2.free()
 	floor_body.queue_free()
+	_done()
+
+
+## The one cvar shape [method DotNpcAiNavAnnotator.read_cvars] reads (`name`, `get_string`),
+## as dot-server's console variable has it.
+class NavCvar:
+	extends RefCounted
+
+	var name := ""
+	var value := ""
+	var ranged := false
+
+	func get_string() -> String:
+		return value
+
+	func with_range(_lo: float, _hi: float) -> NavCvar:
+		ranged = true
+		return self
+
+
+const NavToy := preload("res://fixtures/nav_toy_level.gd")
+
+
+static func _within(p: Vector3, box: AABB, margin: float = 0.0) -> bool:
+	return p.x >= box.position.x - margin and p.x <= box.end.x + margin and p.z >= box.position.z - margin and p.z <= box.end.z + margin
+
+
+static func _links_where(a: DotNpcAiNavAnnotations, kind: int, test: Callable) -> int:
+	var n := 0
+	for link in a.links_of(kind):
+		if test.call(link["from"], link["to"]):
+			n += 1
+	return n
+
+
+func _annotator(mesh: NavigationMesh, level: Node3D) -> DotNpcAiNavAnnotator:
+	var job := DotNpcAiNavAnnotator.new(mesh, level.get_world_3d())
+	job.agent_radius = 0.35
+	job.stand_height = 1.8
+	job.climb = 0.4
+	job.jump_up = 1.0
+	return job
+
+
+func _test_nav_annotations() -> void:
+	_section("navigation annotations on a level built in code")
+
+	var level := NavToy.build()
+	_world.add_child(level)
+	# A ray sees a body only once the physics server has stepped with it in.
+	for _k in range(3):
+		await get_tree().physics_frame
+	var mesh := NavToy.bake(level)
+	_check(mesh.get_polygon_count() > 20, "the toy level bakes", "%d polygons" % mesh.get_polygon_count())
+
+	var job := _annotator(mesh, level)
+	var key := job.cache_key()
+	var res := job.run_to_completion()
+	_check(res.ok, "the annotator finishes", "" if res.ok else res.error.message)
+	if not res.ok:
+		level.queue_free()
+		return
+	var a: DotNpcAiNavAnnotations = res.value
+	_check(a.key == key and key.length() == 64, "and the result carries the key it was asked for")
+
+	var low := NavToy.LOW_PLATFORM
+	var balcony := NavToy.BALCONY
+	var top_of := func(box: AABB) -> Callable:
+		return func(p: Vector3) -> bool: return _within(p, box, 0.2) and p.y > box.end.y - 0.3
+	var on_floor := func(p: Vector3) -> bool: return p.y < 0.6
+	var on_low: Callable = top_of.call(low)
+	var on_balcony: Callable = top_of.call(balcony)
+	var on_west: Callable = top_of.call(NavToy.GAP_WEST)
+	var on_east: Callable = top_of.call(NavToy.GAP_EAST)
+
+	_check(_links_where(a, DotNpcAiNavAnnotations.LINK_JUMP_UP, func(f: Vector3, t: Vector3) -> bool: return on_floor.call(f) and on_low.call(t)) > 0,
+		"a jump up onto the waist-high platform")
+	_check(_links_where(a, DotNpcAiNavAnnotations.LINK_DROP, func(f: Vector3, t: Vector3) -> bool: return on_low.call(f) and on_floor.call(t)) > 0,
+		"and a drop off it")
+	_check(_links_where(a, DotNpcAiNavAnnotations.LINK_DROP, func(f: Vector3, t: Vector3) -> bool: return on_balcony.call(f) and on_floor.call(t)) > 0,
+		"a drop off the balcony")
+	_check(_links_where(a, DotNpcAiNavAnnotations.LINK_JUMP_UP, func(_f: Vector3, t: Vector3) -> bool: return on_balcony.call(t)) == 0,
+		"and no jump up onto it: three metres is above the jump")
+	_check(_links_where(a, DotNpcAiNavAnnotations.LINK_JUMP_GAP, func(f: Vector3, t: Vector3) -> bool: return on_west.call(f) and on_east.call(t)) > 0,
+		"a jump across the gap one way")
+	_check(_links_where(a, DotNpcAiNavAnnotations.LINK_JUMP_GAP, func(f: Vector3, t: Vector3) -> bool: return on_east.call(f) and on_west.call(t)) > 0,
+		"and the other")
+	var floor_gaps := _links_where(a, DotNpcAiNavAnnotations.LINK_JUMP_GAP, func(f: Vector3, t: Vector3) -> bool: return on_floor.call(f) or on_floor.call(t))
+	_check(floor_gaps == 0, "no jump across from the floor to the floor (a corner is not a gap)", "%d" % floor_gaps)
+
+	var in_room := false
+	for spot in a.hiding_spots():
+		if _within(spot["at"], NavToy.ROOM) and (spot["at"] as Vector3).y < 0.6:
+			in_room = true
+	_check(in_room, "a hiding place inside the closed room")
+	# The bake walks the floor inside a solid block tall enough to stand in; that floor is
+	# left out of what watchers, routes and spots are drawn from.
+	var in_solid := 0
+	var verts := mesh.get_vertices()
+	for i in job.kept_polygons():
+		var c := Vector3.ZERO
+		for v in mesh.get_polygon(i):
+			c += verts[v]
+		c /= float(mesh.get_polygon(i).size())
+		for box: AABB in [NavToy.GAP_WEST, NavToy.GAP_EAST, NavToy.BALCONY]:
+			if _within(c, box, -0.1) and c.y < 0.6:
+				in_solid += 1
+	_check(in_solid == 0 and not job.kept_polygons().is_empty(), "and nothing is drawn from the floor the bake found inside a solid block", "%d" % in_solid)
+
+	var door := false
+	for choke in a.chokepoints:
+		if (choke["at"] as Vector3).distance_to(NavToy.DOORWAY) < 1.5 and float(choke["width"]) < 2.0:
+			door = true
+	_check(door, "a chokepoint in the doorway between the halves", str(a.chokepoints))
+
+	var crouch_only := 0
+	var behind: Dictionary = {}
+	for spot in a.spots:
+		if _within(spot["at"], NavToy.LOW_WALL, 0.8) and (spot["at"] as Vector3).x < NavToy.LOW_WALL.position.x:
+			if int(spot["low"]) != 0 and int(spot["high"]) == 0:
+				crouch_only += 1
+				behind = spot
+	_check(crouch_only > 0, "the waist-high wall covers a crouched body and not a standing one")
+	var covered := a.cover_from(Vector3(5, 1, 0), Vector3(-7, 0, 0), 3.0, "low")
+	_check(not covered.is_empty() and (covered[0]["at"] as Vector3).x < NavToy.LOW_WALL.position.x,
+		"cover from somebody east of it is found on its west side")
+	_check(a.cover_from(Vector3(5, 1, 0), Vector3(-7, 0, 0), 3.0, "high").filter(
+		func(sp: Dictionary) -> bool: return _within(sp["at"], NavToy.LOW_WALL, 0.8)).is_empty(),
+		"and none standing there")
+	_check(not behind.is_empty() and (behind["normal"] as Vector3).x < -0.5, "a spot's normal points away from its wall")
+
+	# Kept as data: a round trip, a file, and the ways a file is refused.
+	var back := DotNpcAiNavAnnotations.from_dict(JSON.parse_string(JSON.stringify(a.to_dict())))
+	# Stats are the run's measurements and come back as JSON numbers (floats); the rest is exact.
+	var before := a.to_dict()
+	before.erase("stats")
+	var after: Dictionary = (back.value as DotNpcAiNavAnnotations).to_dict() if back.ok else {}
+	after.erase("stats")
+	_check(back.ok and JSON.stringify(after) == JSON.stringify(before), "the annotations survive JSON")
+	var path := "user://nav_selftest/%s.json" % a.key
+	_check(a.save(path).ok, "and are saved")
+	_check(DotNpcAiNavAnnotations.load_file(path, a.key).ok, "and load for their own key")
+	var wrong := DotNpcAiNavAnnotations.load_file(path, "0".repeat(64))
+	_check(not wrong.ok and wrong.error.code == DotError.CODE_INTEGRITY, "and are refused for another")
+	var missing := DotNpcAiNavAnnotations.load_file("user://nav_selftest/none.json")
+	_check(not missing.ok and missing.error.code == DotError.CODE_IO, "a missing file is a failure, not empty annotations")
+	var old := a.to_dict()
+	old["version"] = DotNpcAiNavAnnotations.VERSION + 1
+	var stale := DotNpcAiNavAnnotations.from_dict(old)
+	_check(not stale.ok and stale.error.code == DotError.CODE_VERSION, "and so is one of another version")
+	DirAccess.remove_absolute(ProjectSettings.globalize_path(path))
+
+	# The key, and the run in slices.
+	var again := _annotator(mesh, level)
+	_check(again.cache_key() == key, "the same mesh and settings give the same key")
+	again.jump_up = 1.2
+	_check(again.cache_key() != key, "and a changed setting another")
+	var sliced := _annotator(mesh, level)
+	sliced.slice = 3
+	var steps := 0
+	while sliced.step():
+		steps += 1
+	var sliced_a: DotNpcAiNavAnnotations = sliced.result.value if sliced.result != null and sliced.result.ok else null
+	_check(sliced_a != null and steps > 50, "run three items at a time it takes many steps", "%d" % steps)
+	if sliced_a != null:
+		var x := a.to_dict()
+		var y := sliced_a.to_dict()
+		x.erase("stats")
+		y.erase("stats")
+		_check(JSON.stringify(x) == JSON.stringify(y), "and gives exactly what one go gives")
+	else:
+		_check(false, "and gives exactly what one go gives")
+
+	# What a game adds, and what a server tunes.
+	var declared := _annotator(mesh, level)
+	declared.declare(Vector3(-18, 0.2, -13), Vector3(18, 0.2, 13), DotNpcAiNavAnnotations.LINK_TELEPORT, 2.0)
+	_check(declared.cache_key() != key, "a declared link changes the key")
+	var with_teleport: DotNpcAiNavAnnotations = declared.run_to_completion().value
+	_check(with_teleport.links_of(DotNpcAiNavAnnotations.LINK_TELEPORT).size() == 1, "and is in the result as declared")
+	var made: Array = []
+	var add := func(cvar_name: String, default_value: String, _description: String, _flags: int) -> Object:
+		var cv := NavCvar.new()
+		cv.name = cvar_name
+		cv.value = "0.5" if cvar_name == DotNpcAiNavAnnotator.CVAR_JUMP_UP else default_value
+		made.append(cv)
+		return cv
+	var cvars := DotNpcAiNavAnnotator.bind_cvars(add)
+	_check(cvars.size() == 4 and made.size() == 4 and (made[0] as NavCvar).ranged, "four ranged cvars are registered")
+	var tuned := _annotator(mesh, level)
+	tuned.read_cvars(cvars)
+	_check(is_equal_approx(tuned.jump_up, 0.5) and is_equal_approx(tuned.drop_max, 6.0), "and read into an annotator")
+	var short: DotNpcAiNavAnnotations = tuned.run_to_completion().value
+	_check(short.links_of(DotNpcAiNavAnnotations.LINK_JUMP_UP).is_empty(), "where a half-metre jump links no jump up onto the platform")
+
+	level.queue_free()
 	_done()
