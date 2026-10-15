@@ -128,6 +128,12 @@ var reach_only: bool = false
 var min_island_area: float = 6.0
 ## Items per [method _step].
 var slice: int = 24
+## Milliseconds one [method _step] may run before it hands the frame back, whatever [member slice]
+## says: the items of a dense map cost ten times those of a sparse one (a 24-sample slice was
+## 40 ms on a large surf map), so a count alone is no budget. A step finishes the item it is on,
+## so it can overrun by one item. Zero turns it off. It changes only where a step ends, never
+## the result, so it is not part of the cache key.
+var slice_ms: float = 4.0
 
 ## `(from: Vector3, to: Vector3) -> bool`, true when nothing blocks the sight line. Unset,
 ## a ray against [member collision_mask].
@@ -138,7 +144,7 @@ var annotations: DotNpcAiNavAnnotations = DotNpcAiNavAnnotations.new()
 
 # --- State --------------------------------------------------------------------
 
-enum Phase { POLYGONS, EDGES, BORDER, ISLANDS, WATCHERS, SPOTS, PICK, ROUTES, CHOKEPOINTS, DONE }
+enum Phase { POLYGONS, EDGES, BORDER, ISLANDS, WATCHERS, SPOTS, PICK, ROUTES, CHOKEPOINTS, FINISH, DONE }
 
 var _mesh: NavigationMesh = null
 var _world: World3D = null
@@ -146,6 +152,13 @@ var _phase: int = Phase.POLYGONS
 var _cursor: int = 0
 var _started_us: int = 0
 var _phase_us: Dictionary = {}
+var _finish_stage: int = 0
+var _key_ctx: HashingContext = null
+var _joining: int = 0
+var _step_began_us: int = 0
+## The longest single [method _step] so far and the phase it ran: what one frame would pay.
+var _slowest_ms: float = 0.0
+var _slowest_phase: String = ""
 var _phase_started_us: int = 0
 var _rng: DotRandomStream = null
 
@@ -184,6 +197,20 @@ var _kept_area: PackedFloat32Array = PackedFloat32Array()
 var _sky: Dictionary = {}
 var _solid: Dictionary = {}
 var _island_roots: Array = []
+# The island-keeping stages of the islands phase, and what they carry between slices.
+enum { KEEP_ASK, KEEP_AREA, KEEP_LINKS, KEEP_REACH, KEEP_DECIDE, KEEP_USABLE, KEEP_TABLE }
+var _keep_stage: int = KEEP_ASK
+var _island_area: Dictionary = {}
+var _keep_all_links: Array[Dictionary] = []
+var _keep_touched: Dictionary = {}
+var _keep_out: Dictionary = {}
+var _keep_reached: Dictionary = {}
+var _keep_roots: Array = []
+var _keep_roofed: bool = false
+var _keep_seeded_empty: bool = true
+var _keep_largest: int = -1
+var _keep_usable: Array = []
+var _keep_total: float = 0.0
 var _thin_kept: Array = []
 var _thin_cells: Dictionary = {}
 
@@ -229,13 +256,29 @@ func cache_key() -> String:
 
 
 static func key_for(mesh: NavigationMesh, with: Dictionary) -> String:
+	var ctx := _key_begin(mesh)
+	if mesh != null:
+		_key_polygons(ctx, mesh, 0, mesh.get_polygon_count())
+	return _key_end(ctx, with)
+
+
+# The key in three parts, so the job can hash a large mesh a slice at a time and get the very
+# digest [method key_for] gives.
+static func _key_begin(mesh: NavigationMesh) -> HashingContext:
 	var ctx := HashingContext.new()
 	ctx.start(HashingContext.HASH_SHA256)
 	ctx.update(("dot_npc_ai_nav_annotations/%d|" % DotNpcAiNavAnnotations.VERSION).to_utf8_buffer())
 	if mesh != null:
 		ctx.update(mesh.get_vertices().to_byte_array())
-		for i in range(mesh.get_polygon_count()):
-			ctx.update(mesh.get_polygon(i).to_byte_array())
+	return ctx
+
+
+static func _key_polygons(ctx: HashingContext, mesh: NavigationMesh, from: int, to: int) -> void:
+	for i in range(from, to):
+		ctx.update(mesh.get_polygon(i).to_byte_array())
+
+
+static func _key_end(ctx: HashingContext, with: Dictionary) -> String:
 	var keys := with.keys()
 	keys.sort()
 	for k: Variant in keys:
@@ -294,6 +337,9 @@ func _step() -> bool:
 		_finish(DotResult.fail(DotError.CODE_STATE, "nothing to measure against: no physics space"))
 		return false
 
+	var began := Time.get_ticks_usec()
+	_step_began_us = began
+	var ran := _phase
 	match _phase:
 		Phase.POLYGONS:
 			_step_polygons()
@@ -313,6 +359,12 @@ func _step() -> bool:
 			_step_routes()
 		Phase.CHOKEPOINTS:
 			_step_chokepoints()
+		Phase.FINISH:
+			_step_finish()
+	var took := (Time.get_ticks_usec() - began) / 1000.0
+	if took > _slowest_ms:
+		_slowest_ms = took
+		_slowest_phase = Phase.keys()[ran].to_lower()
 	if _phase == Phase.DONE:
 		_complete()
 		return false
@@ -327,18 +379,43 @@ func _next_phase() -> void:
 	_cursor = 0
 
 
-func _complete() -> void:
-	annotations.links.append_array(_declared)
-	annotations.key = cache_key()
-	var ms := (Time.get_ticks_usec() - _started_us) / 1000.0
-	var joining := 0
-	for link in annotations.links:
+## The last phase, in pieces: hashing the mesh for the key (the dearest, it is every polygon),
+## then counting the links that join islands. [method _complete] only assembles.
+func _step_finish() -> void:
+	if _finish_stage == 0:
+		if _cursor == 0:
+			_key_ctx = _key_begin(_mesh)
+		var end := mini(_cursor + slice * 40, _mesh.get_polygon_count())
+		_key_polygons(_key_ctx, _mesh, _cursor, end)
+		_cursor = end
+		if _cursor >= _mesh.get_polygon_count():
+			_finish_stage = 1
+			_cursor = 0
+			annotations.links.append_array(_declared)
+		return
+	var end := mini(_cursor + maxi(1, slice / 2), annotations.links.size())
+	for k in range(_cursor, end):
+		var link := annotations.links[k]
 		var a := _poly_under(link["from"], 1.0)
 		var b := _poly_under(link["to"], 1.0)
 		if a >= 0 and b >= 0 and _find(a) != _find(b):
-			joining += 1
+			_joining += 1
+		if _out_of_time():
+			end = k + 1
+			break
+	_cursor = end
+	if _cursor >= annotations.links.size():
+		_next_phase()
+
+
+func _complete() -> void:
+	annotations.key = _key_end(_key_ctx, settings())
+	_key_ctx = null
+	var ms := (Time.get_ticks_usec() - _started_us) / 1000.0
+	var joining := _joining
 	annotations.stats = {
-		"ms": snappedf(ms, 0.1), "phases_ms": _phase_us, "polygons": _mesh.get_polygon_count(),
+		"ms": snappedf(ms, 0.1), "phases_ms": _phase_us,
+		"slowest_slice_ms": snappedf(_slowest_ms, 0.1), "slowest_slice_phase": _slowest_phase, "polygons": _mesh.get_polygon_count(),
 		"outline": _border.size(), "samples": _samples.size(), "wall_samples": _wall_samples.size(),
 		"islands": _island_count(), "islands_kept": _kept.size(), "links_joining_islands": joining, "routes": _routes_done,
 	}
@@ -460,6 +537,9 @@ func _step_border() -> void:
 	for i in range(_cursor, end):
 		var sample: Array = _samples[i]
 		_classify(sample[0], sample[1], int(sample[2]))
+		if _out_of_time():
+			end = i + 1
+			break
 	_cursor = end
 	if _cursor >= _samples.size():
 		_next_phase()
@@ -657,6 +737,9 @@ func _step_spots() -> void:
 			"exposure": float(seen) / float(near) if near > 0 else 0.5,
 			"seen_by": seen, "enclosure": float(blocked) / 16.0, "low": low_mask, "high": high_mask,
 		})
+		if _out_of_time():
+			end = i + 1
+			break
 	_cursor = end
 	if _cursor >= _wall_samples.size():
 		_next_phase()
@@ -726,6 +809,9 @@ func _step_routes() -> void:
 				entry["width"] = width
 				entry["at"] = mid
 			_traffic[cell] = entry
+		if _out_of_time():
+			end = _i + 1
+			break
 	_cursor = end
 	if _cursor >= routes:
 		_next_phase()
@@ -802,100 +888,164 @@ func kept_polygons() -> PackedInt32Array:
 	return out
 
 
+## Whether this step has used its [member slice_ms].
+func _out_of_time() -> bool:
+	return slice_ms > 0.0 and (Time.get_ticks_usec() - _step_began_us) / 1000.0 >= slice_ms
+
+
 ## Asks of a slice of islands whether each is inside a solid or open to the sky (rays
-## against the whole map, the dearest per item here), then keeps islands once all are asked.
+## against the whole map, the dearest per item here), then keeps islands in slices too
+## ([method _step_keep]); on a 7000-polygon map that was one 80 ms step.
 func _step_islands() -> void:
-	if _cursor == 0:
-		var roots := {}
-		for i in range(_island_parent.size()):
-			roots[_find(i)] = true
-		_island_roots = roots.keys()
-	var end := mini(_cursor + maxi(1, slice / 4), _island_roots.size())
-	for k in range(_cursor, end):
-		_open_to_sky(int(_island_roots[k]))
-	_cursor = end
-	if _cursor >= _island_roots.size():
-		_keep_islands()
+	if _keep_stage == KEEP_ASK:
+		if _cursor == 0:
+			var roots := {}
+			for i in range(_island_parent.size()):
+				roots[_find(i)] = true
+			_island_roots = roots.keys()
+		var end := mini(_cursor + maxi(1, slice / 4), _island_roots.size())
+		for k in range(_cursor, end):
+			_open_to_sky(int(_island_roots[k]))
+			if _out_of_time():
+				end = k + 1
+				break
+		_cursor = end
+		if _cursor >= _island_roots.size():
+			_keep_stage = KEEP_AREA
+			_cursor = 0
+			_island_area = {}
+		return
+	if _step_keep():
+		_keep_stage = KEEP_ASK
 		_next_phase()
 
 
 ## Fills [member _kept], the islands spots, watchers and routes are drawn from (see
 ## [member seeds], [member reach_only], [member min_island_area]), and drops the links that
-## start anywhere else.
-func _keep_islands() -> void:
-	_kept = {}
-	var area := {}
-	for i in range(_tris.size()):
-		var root := _find(int(_tris[i][3]))
-		var prev := _tri_area[i - 1] if i > 0 else 0.0
-		area[root] = float(area.get(root, 0.0)) + _tri_area[i] - prev
-	var all_links: Array[Dictionary] = annotations.links.duplicate()
-	all_links.append_array(_declared)
-	var touched := {}
-	var out := {}
-	for link in all_links:
-		var a := _poly_under((link["from"] as Vector3) + Vector3.UP * 0.2, 0.6)
-		var b := _poly_under((link["to"] as Vector3) + Vector3.UP * 0.2, 0.6)
-		if a >= 0:
-			touched[_find(a)] = true
-		if b >= 0:
-			touched[_find(b)] = true
-		if a >= 0 and b >= 0 and _find(a) != _find(b):
-			if not out.has(_find(a)):
-				out[_find(a)] = []
-			(out[_find(a)] as Array).append(_find(b))
-	var seeded := {}
-	for seed_at in seeds:
-		var poly := _poly_under(seed_at + Vector3.UP * 0.2, 1.5)
-		if poly >= 0:
-			seeded[_find(poly)] = true
-	var largest := -1
-	for root: int in area:
-		if largest < 0 or float(area[root]) > float(area[largest]):
-			largest = root
-	var reached := seeded.duplicate()
-	var queue: Array = seeded.keys()
-	while not queue.is_empty():
-		var root: int = queue.pop_back()
-		for next: int in out.get(root, []):
-			if not reached.has(next):
-				reached[next] = true
-				queue.append(next)
-	# A map whose bodies start under a roof is sealed, and a floor open to the sky is the top of
-	# its shell: walkable to the bake, outside the map to everybody else.
-	var reference: Array = seeded.keys() if not seeded.is_empty() else ([largest] if largest >= 0 else [])
-	var roofed := false
-	for root: int in reference:
-		if not _open_to_sky(root):
-			roofed = true
-			break
-	for root: int in area:
-		if reached.has(root):
-			_kept[root] = true
-		elif reach_only and not seeded.is_empty():
-			continue
-		elif _solid.has(root):
-			continue
-		elif roofed and _open_to_sky(root):
-			continue
-		elif touched.has(root) or float(area[root]) >= min_island_area or (seeded.is_empty() and root == largest):
-			_kept[root] = true
-	# A link that starts where nobody can be is no use to anybody.
-	var usable: Array[Dictionary] = []
-	for link in annotations.links:
-		var a := _poly_under((link["from"] as Vector3) + Vector3.UP * 0.2, 0.6)
-		if a >= 0 and _kept.has(_find(a)):
-			usable.append(link)
-	annotations.links = usable
-	# Random points from here on are drawn from the kept floor only.
-	_kept_tris = PackedInt32Array()
-	_kept_area = PackedFloat32Array()
-	var total := 0.0
-	for i in range(_tris.size()):
-		if _kept.has(_find(int(_tris[i][3]))):
-			total += _tri_area[i] - (_tri_area[i - 1] if i > 0 else 0.0)
-			_kept_tris.append(i)
-			_kept_area.append(total)
+## start anywhere else. Every stage walks a list in order and keeps its state in members, so
+## slicing it cannot change the answer (float sums keep their order). Returns true when done.
+func _step_keep() -> bool:
+	match _keep_stage:
+		KEEP_AREA:
+			# Area per island, summed in triangle order.
+			var end := mini(_cursor + slice * 40, _tris.size())
+			for i in range(_cursor, end):
+				var root := _find(int(_tris[i][3]))
+				var prev := _tri_area[i - 1] if i > 0 else 0.0
+				_island_area[root] = float(_island_area.get(root, 0.0)) + _tri_area[i] - prev
+			_cursor = end
+			if _cursor >= _tris.size():
+				_keep_stage = KEEP_LINKS
+				_cursor = 0
+				_keep_all_links = annotations.links.duplicate()
+				_keep_all_links.append_array(_declared)
+				_keep_touched = {}
+				_keep_out = {}
+		KEEP_LINKS:
+			var end := mini(_cursor + maxi(1, slice / 2), _keep_all_links.size())
+			for k in range(_cursor, end):
+				var link := _keep_all_links[k]
+				var a := _poly_under((link["from"] as Vector3) + Vector3.UP * 0.2, 0.6)
+				var b := _poly_under((link["to"] as Vector3) + Vector3.UP * 0.2, 0.6)
+				if a >= 0:
+					_keep_touched[_find(a)] = true
+				if b >= 0:
+					_keep_touched[_find(b)] = true
+				if a >= 0 and b >= 0 and _find(a) != _find(b):
+					if not _keep_out.has(_find(a)):
+						_keep_out[_find(a)] = []
+					(_keep_out[_find(a)] as Array).append(_find(b))
+			_cursor = end
+			if _cursor >= _keep_all_links.size():
+				_keep_stage = KEEP_REACH
+				_cursor = 0
+		KEEP_REACH:
+			# Small: seeds and a walk over the islands the links join.
+			var seeded := {}
+			for seed_at in seeds:
+				var poly := _poly_under(seed_at + Vector3.UP * 0.2, 1.5)
+				if poly >= 0:
+					seeded[_find(poly)] = true
+			var largest := -1
+			for root: int in _island_area:
+				if largest < 0 or float(_island_area[root]) > float(_island_area[largest]):
+					largest = root
+			var reached := seeded.duplicate()
+			var queue: Array = seeded.keys()
+			while not queue.is_empty():
+				var root: int = queue.pop_back()
+				for next: int in _keep_out.get(root, []):
+					if not reached.has(next):
+						reached[next] = true
+						queue.append(next)
+			# A map whose bodies start under a roof is sealed, and a floor open to the sky is the top of
+			# its shell: walkable to the bake, outside the map to everybody else.
+			var reference: Array = seeded.keys() if not seeded.is_empty() else ([largest] if largest >= 0 else [])
+			_keep_roofed = false
+			for root: int in reference:
+				if not _open_to_sky(root):
+					_keep_roofed = true
+					break
+			_keep_seeded_empty = seeded.is_empty()
+			_keep_largest = largest
+			_keep_reached = reached
+			_keep_roots = _island_area.keys()
+			_kept = {}
+			_keep_stage = KEEP_DECIDE
+		KEEP_DECIDE:
+			var end := mini(_cursor + slice * 8, _keep_roots.size())
+			for k in range(_cursor, end):
+				var root: int = _keep_roots[k]
+				if _keep_reached.has(root):
+					_kept[root] = true
+				elif reach_only and not _keep_seeded_empty:
+					continue
+				elif _solid.has(root):
+					continue
+				elif _keep_roofed and _open_to_sky(root):
+					continue
+				elif _keep_touched.has(root) or float(_island_area[root]) >= min_island_area or (_keep_seeded_empty and root == _keep_largest):
+					_kept[root] = true
+			_cursor = end
+			if _cursor >= _keep_roots.size():
+				_keep_stage = KEEP_USABLE
+				_cursor = 0
+				_keep_usable = []
+		KEEP_USABLE:
+			# A link that starts where nobody can be is no use to anybody.
+			var end := mini(_cursor + maxi(1, slice / 2), annotations.links.size())
+			for k in range(_cursor, end):
+				var link := annotations.links[k]
+				var a := _poly_under((link["from"] as Vector3) + Vector3.UP * 0.2, 0.6)
+				if a >= 0 and _kept.has(_find(a)):
+					_keep_usable.append(link)
+			_cursor = end
+			if _cursor >= annotations.links.size():
+				var usable: Array[Dictionary] = []
+				usable.assign(_keep_usable)
+				annotations.links = usable
+				# Random points from here on are drawn from the kept floor only.
+				_kept_tris = PackedInt32Array()
+				_kept_area = PackedFloat32Array()
+				_keep_total = 0.0
+				_keep_stage = KEEP_TABLE
+				_cursor = 0
+		KEEP_TABLE:
+			var end := mini(_cursor + slice * 40, _tris.size())
+			for i in range(_cursor, end):
+				if _kept.has(_find(int(_tris[i][3]))):
+					_keep_total += _tri_area[i] - (_tri_area[i - 1] if i > 0 else 0.0)
+					_kept_tris.append(i)
+					_kept_area.append(_keep_total)
+			_cursor = end
+			if _cursor >= _tris.size():
+				_keep_all_links = []
+				_keep_touched = {}
+				_keep_out = {}
+				_keep_reached = {}
+				_keep_usable = []
+				return true
+	return false
 
 
 ## Whether nothing is over [param root]'s island: a ray up from its centre and from up to

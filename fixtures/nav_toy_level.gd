@@ -52,6 +52,27 @@ static func build() -> Node3D:
 	return root
 
 
+## A large level for timing: a [param cells] by [param cells] field of blocks 5 m on a side,
+## 8 m apart, each a different height between 0.9 and 3.6 m (drops, jump ups and gaps all
+## round), on a floor with a wall round it. Thousands of polygons, hundreds of islands, and
+## every outline sample has a neighbour to look at: what a surf or bhop map is to the
+## annotator, without owning one.
+static func build_large(cells: int = 12) -> Node3D:
+	var root := Node3D.new()
+	root.name = "NavLargeLevel"
+	var span := float(cells) * 8.0 + 8.0
+	_box(root, AABB(Vector3(-4, -1, -4), Vector3(span, 1, span)))
+	_box(root, AABB(Vector3(-4.4, 0, -4.4), Vector3(span + 0.8, WALL, 0.4)))
+	_box(root, AABB(Vector3(-4.4, 0, span - 4), Vector3(span + 0.8, WALL, 0.4)))
+	_box(root, AABB(Vector3(-4.4, 0, -4), Vector3(0.4, WALL, span)))
+	_box(root, AABB(Vector3(span - 4, 0, -4), Vector3(0.4, WALL, span)))
+	for ix in range(cells):
+		for iz in range(cells):
+			var h := 0.9 + float((ix * 7 + iz * 13) % 10) * 0.3
+			_box(root, AABB(Vector3(float(ix) * 8.0, 0, float(iz) * 8.0), Vector3(5, h, 5)))
+	return root
+
+
 ## The mesh dot-bot's DotBotNav bakes for a body of [param radius] and [param height] that
 ## steps [param step], from [param root]'s static colliders (root in the tree). The same
 ## numbers as DotBotNav (cell 0.175 by 0.1, the body rounded to whole cells), so what the

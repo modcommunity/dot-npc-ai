@@ -19,13 +19,13 @@ const BRAIN := "res://fixtures/zombie_brain.gd"
 const SEARCHER := "res://fixtures/searcher_brain.gd"
 const GUNNER := "res://fixtures/gunner_brain.gd"
 
-const CHECKS := 348
+const CHECKS := 355
 
 ## Sections entered against sections that ran to their last line, and against this. A
 ## runtime error inside a section aborts that function and nothing says so; a section that
 ## bailed out early after a failed guard is counted as not finished on purpose. The CHECKS
 ## total is the other half — see docs/testing.md.
-const SECTIONS := 33
+const SECTIONS := 34
 
 var _passed := 0
 var _failed := 0
@@ -81,6 +81,7 @@ func _run() -> void:
 	_test_heatmap()
 	_test_ranged_and_roles()
 	await _test_nav_annotations()
+	await _test_nav_annotator_budget()
 
 	print("")
 	print("%d passed, %d failed" % [_passed, _failed])
@@ -2745,5 +2746,68 @@ func _test_nav_annotations() -> void:
 	var short: DotNpcAiNavAnnotations = tuned.run_to_completion().value
 	_check(short.links_of(DotNpcAiNavAnnotations.LINK_JUMP_UP).is_empty(), "where a half-metre jump links no jump up onto the platform")
 
+	level.queue_free()
+	_done()
+
+
+## No one step of the annotator may be longer than the budget it is given: a server steps it
+## inside a frame, and a step of 40 to 80 ms on a large map was one long tick. The old costs
+## were in the 24-sample outline slices (a dense map's samples cost ten times a sparse one's)
+## and in the one step that kept islands, so the level here is dense and wide.
+func _test_nav_annotator_budget() -> void:
+	_section("the annotator keeps every step inside its budget on a large level")
+	var level := NavToy.build_large(12)
+	_world.add_child(level)
+	for _k in range(3):
+		await get_tree().physics_frame
+	var mesh := NavToy.bake(level)
+	_check(mesh.get_polygon_count() > 1500, "the large level bakes to a large mesh", "%d polygons" % mesh.get_polygon_count())
+	var spawn := Vector3(2.5, 1.0, 2.5)
+
+	var budget := 4.0
+	var job := _annotator(mesh, level)
+	job.seeds = PackedVector3Array([spawn])
+	job.slice_ms = budget
+	var slowest := 0.0
+	var slowest_phase := ""
+	var steps := 0
+	while true:
+		var phase := String(job.describe()["phase"])
+		var began := Time.get_ticks_usec()
+		var more := job.step()
+		var took := (Time.get_ticks_usec() - began) / 1000.0
+		if took > slowest:
+			slowest = took
+			slowest_phase = phase
+		steps += 1
+		if not more:
+			break
+	var ok: bool = job.result != null and job.result.ok
+	_check(ok, "the large level annotates", "" if ok else "no result")
+	if not ok:
+		level.queue_free()
+		_done()
+		return
+	var a: DotNpcAiNavAnnotations = job.result.value
+	# One item is the least a step can do and CI is noisy, so two budgets are allowed. The old
+	# code's longest step here was several times over that.
+	_check(slowest <= budget * 2.0, "no step is much longer than the %.0f ms budget" % budget,
+		"%.1f ms in %s over %d steps" % [slowest, slowest_phase, steps])
+	_check(float(a.stats.get("slowest_slice_ms", 999.0)) <= budget * 2.0, "and the job reports the same",
+		"%s" % a.stats.get("slowest_slice_ms"))
+	_check(a.links.size() > 20 and a.spots.size() > 50, "with real annotations to time", "%d links, %d spots" % [a.links.size(), a.spots.size()])
+
+	# The same answer whatever the budget: the key is only valid if slicing changes nothing.
+	var counted := _annotator(mesh, level)
+	counted.seeds = PackedVector3Array([spawn])
+	counted.slice_ms = 0.0
+	counted.slice = 5000
+	var whole: DotNpcAiNavAnnotations = counted.run_to_completion().value
+	var x := a.to_dict()
+	var y := whole.to_dict()
+	x.erase("stats")
+	y.erase("stats")
+	_check(JSON.stringify(x) == JSON.stringify(y), "and the same links, spots and chokepoints as an unbudgeted run")
+	_check(a.key == whole.key, "under the same key")
 	level.queue_free()
 	_done()
