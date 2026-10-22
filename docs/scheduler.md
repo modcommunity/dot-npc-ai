@@ -17,7 +17,7 @@ The host adds one `DotNpcAiScheduler` node, gives it a `DotNpcAiSchedulerConfig`
 
 A brain no player can see (`visibility_source`) is moved `unseen_penalty` tiers calmer; one with a target is never calmer than `engaged_max_tier`. A brain crosses into a calmer tier only `hysteresis` metres past the edge. Phases come from a hash of the NPC's seed, so thinks spread over the ticks and seeds in steps of ten do not bunch.
 
-A skipped brain returns early from `_npc_think`; the next think gets the time of every tick it missed, so cooldowns and timeouts keep real time.
+A skipped brain returns early from `_npc_think`; the next think gets the time of every tick it missed (at most `max_catchup_s`, and none of the time the scheduler was off), so cooldowns and timeouts keep real time. A grant to think stays until the brain asks, so a host ticking its NPCs slower than `advance()` starves none. Dead brains are granted nothing. With no player known every brain is in `idle_tier` (3), engaged ones at their cap. `wake(brain)` retiers one at once and lets it think this tick; the brain calls it when hurt and when the spawner reports a new target.
 
 ## Budget
 
@@ -25,7 +25,7 @@ A skipped brain returns early from `_npc_think`; the next think gets the time of
 
 ## Queries
 
-`cached_los(brain, key, compute)` reuses a line-of-sight answer for `los_cache_ticks`, and a tier above `los_max_tier` is told no without a test. `cached_path(key, compute)` reuses a path for `path_cache_ticks` and computes at most `max_paths_per_frame` new ones a frame; past that it returns the stale path or null. The brain uses them itself: `steer_with_spacing` and `steer_along_path` reuse a path at tiers 1 and up, and `line_clear(to, compute)` is the cached sight test a game's tree calls.
+`cached_los(brain, key, compute)` reuses a line-of-sight answer for `los_cache_ticks`, and a tier above `los_max_tier` is told no without a test. `cached_path(key, compute)` reuses a path for `path_cache_ticks` and computes at most `max_paths_per_frame` new ones a frame; past that it returns the stale path or null and sets `path_denied`. `take_path_slot()` spends the same allowance for a caller with its own cache (the brain does, reusing a path while its destination moves less than `path_reuse_m`; `cap_tier0_paths` makes tier 0 spend it too). A tier above `los_max_tier` is told no even when a yes is cached. The brain uses them itself: `steer_with_spacing` and `steer_along_path` reuse a path at tiers 1 and up, and `line_clear(to, compute)` is the cached sight test a game's tree calls.
 
 ## Numbers
 

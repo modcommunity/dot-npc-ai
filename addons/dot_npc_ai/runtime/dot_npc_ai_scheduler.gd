@@ -46,6 +46,9 @@ var stats := {
 	"paths_granted": 0, "paths_denied": 0, "los_hits": 0, "los_blocked": 0, "cache_hits": 0,
 }
 
+## True when the last [method cached_path] call was refused for want of allowance and had nothing cached.
+var path_denied: bool = false
+
 ## The most microseconds any one frame's admitted brains spent.
 var peak_used_us: int = 0
 
@@ -65,6 +68,8 @@ var _los_cache: Dictionary = {}
 var _path_cache: Dictionary = {}
 var _players: Array = []
 var _players_tick: int = -1
+var _active_from: float = 0.0
+var _was_enabled: bool = false
 
 
 class Slot extends RefCounted:
@@ -78,6 +83,7 @@ class Slot extends RefCounted:
 	var go_tick: int = -1
 	var owed: bool = false
 	var live: bool = true
+	var has_alive: bool = false
 	var index: int = 0
 	var thinks: int = 0
 
@@ -122,6 +128,7 @@ func register(brain: Object) -> void:
 	var slot := Slot.new()
 	slot.brain = brain
 	slot.npc = brain.get(&"npc")
+	slot.has_alive = slot.npc != null and slot.npc.has_method(&"is_alive")
 	_serial += 1
 	var seed_value := 0
 	if slot.npc != null:
@@ -149,6 +156,13 @@ func unregister(brain: Object) -> void:
 		return
 	_by_id.erase(id)
 	slot.live = false
+	if slot.owed:
+		slot.owed = false
+		var at := _owed.find(slot)
+		if at >= 0:
+			_owed.remove_at(at)
+			if at < _owed_head:
+				_owed_head -= 1
 	var last := _slots.pop_back() as Slot
 	if last != slot:
 		_slots[slot.index] = last
@@ -168,7 +182,17 @@ func advance(delta: float) -> void:
 		_prune_caches()
 
 	if not config.enabled:
+		_was_enabled = false
+		for owed in _owed:
+			owed.owed = false
+		_owed.clear()
+		_owed_head = 0
 		return
+
+	if not _was_enabled:
+		# Time that passed while off is not owed to anyone.
+		_was_enabled = true
+		_active_from = _time - delta
 
 	_players = _read_players()
 	_players_tick = tick
@@ -181,8 +205,9 @@ func advance(delta: float) -> void:
 		_owed_head += 1
 		if owed.live and owed.owed:
 			owed.owed = false
-			owed.go_tick = tick
-			allowance -= 1
+			if _thinks(owed):
+				owed.go_tick = tick
+				allowance -= 1
 	if _owed_head >= _owed.size():
 		_owed.clear()
 		_owed_head = 0
@@ -191,10 +216,13 @@ func advance(delta: float) -> void:
 		var phase := tick + slot.mix
 		if phase % retier_every == 0:
 			_retier(slot)
-		if slot.owed or slot.go_tick == tick:
+		# A grant stays until the brain asks, so a host ticking slower than this loop starves nobody.
+		if slot.owed or slot.go_tick >= 0:
 			continue
 		if slot.interval == 0 or phase % slot.interval != 0:
 			stats["skipped"] += 1
+			continue
+		if not _thinks(slot):
 			continue
 		if allowance > 0:
 			slot.go_tick = tick
@@ -213,7 +241,7 @@ func admit(brain: Object, delta: float) -> float:
 	var slot: Slot = _by_id.get(brain.get_instance_id())
 	if slot == null:
 		return delta
-	if slot.go_tick != tick:
+	if slot.go_tick < 0:
 		return -1.0
 
 	slot.go_tick = -1
@@ -223,7 +251,7 @@ func admit(brain: Object, delta: float) -> float:
 		stats["deferred"] += 1
 		return -1.0
 
-	var dt := _time - slot.last_time
+	var dt := minf(_time - maxf(slot.last_time, _active_from), config.max_catchup_s)
 	slot.last_time = _time
 	slot.started_us = _now_us()
 	admitted += 1
@@ -247,6 +275,21 @@ func finish(brain: Object) -> void:
 	_est_cost_us = lerpf(_est_cost_us, float(cost), 0.1)
 	if float(used_us) > config.budget_ms * 1000.0:
 		stats["overruns"] += 1
+
+
+## Retiers [param brain] now and lets it think this tick: it was hurt or found a target and must not wait for a sweep.
+func wake(brain: Object) -> void:
+	if not config.enabled:
+		return
+	var slot: Slot = _by_id.get(brain.get_instance_id())
+	if slot == null:
+		return
+	if _players_tick != tick:
+		_players = _read_players()
+		_players_tick = tick
+	_retier(slot)
+	if slot.interval != 0 and not slot.owed and slot.go_tick < 0:
+		slot.go_tick = tick
 
 
 ## The tier [param brain] is in, 0 to [constant TIERS] - 1; 0 when it is not registered.
@@ -281,13 +324,14 @@ func cached_los(brain: Object, key: Variant, compute: Callable) -> bool:
 	if not config.enabled:
 		return compute.call()
 
+	if not los_allowed(brain):
+		stats["los_blocked"] += 1
+		return false
+
 	var hit: Array = _los_cache.get(key, [])
 	if not hit.is_empty() and hit[0] > tick:
 		stats["cache_hits"] += 1
 		return hit[1]
-	if not los_allowed(brain):
-		stats["los_blocked"] += 1
-		return hit[1] if not hit.is_empty() else false
 
 	var value: bool = compute.call()
 	_los_cache[key] = [tick + config.los_cache_ticks, value]
@@ -301,11 +345,13 @@ func cached_path(key: Variant, compute: Callable) -> Variant:
 		return compute.call()
 
 	var hit: Array = _path_cache.get(key, [])
+	path_denied = false
 	if not hit.is_empty() and hit[0] > tick:
 		stats["cache_hits"] += 1
 		return hit[1]
 	if _paths_used >= config.max_paths_per_frame:
 		stats["paths_denied"] += 1
+		path_denied = hit.is_empty()
 		return hit[1] if not hit.is_empty() else null
 
 	_paths_used += 1
@@ -313,6 +359,18 @@ func cached_path(key: Variant, compute: Callable) -> Variant:
 	var value: Variant = compute.call()
 	_path_cache[key] = [tick + config.path_cache_ticks, value]
 	return value
+
+
+## Spends one of this frame's path computations; false when they are used up. For a caller that keeps its own cache.
+func take_path_slot() -> bool:
+	if not config.enabled:
+		return true
+	if _paths_used >= config.max_paths_per_frame:
+		stats["paths_denied"] += 1
+		return false
+	_paths_used += 1
+	stats["paths_granted"] += 1
+	return true
 
 
 ## State for logs and the console.
@@ -345,6 +403,14 @@ func _allowance() -> int:
 	return maxi(1, int(config.budget_ms * 1000.0 / maxf(_est_cost_us, 1.0)))
 
 
+func _thinks(slot: Slot) -> bool:
+	if not is_instance_valid(slot.brain):
+		return false
+	if slot.has_alive and (not is_instance_valid(slot.npc) or not slot.npc.call(&"is_alive")):
+		return false
+	return true
+
+
 func _now_us() -> int:
 	if clock.is_valid():
 		return int(clock.call())
@@ -363,7 +429,7 @@ func _read_players() -> Array:
 
 
 func _retier(slot: Slot) -> void:
-	var tier := 0
+	var tier := config.idle_tier
 	var at := Vector3.ZERO
 
 	if slot.npc != null:

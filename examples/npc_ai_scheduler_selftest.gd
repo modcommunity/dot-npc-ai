@@ -2,8 +2,8 @@ extends Node
 
 ## DotNpcAiScheduler against fake brains: tiers, stagger, the budget, the caches, and what it saves.
 
-const CHECKS := 52
-const SECTIONS := 8
+const CHECKS := 67
+const SECTIONS := 9
 
 var _passed := 0
 var _failed := 0
@@ -17,6 +17,10 @@ class FakeNpc extends RefCounted:
 	var seed: int = 0
 	var pos := Vector3.ZERO
 	var target := false
+	var alive := true
+
+	func is_alive() -> bool:
+		return alive
 
 	func position() -> Vector3:
 		return pos
@@ -48,6 +52,7 @@ func _run() -> void:
 	_test_queries()
 	_test_config()
 	_test_cost()
+	_test_review_gaps()
 
 	print("")
 	print("%d passed, %d failed" % [_passed, _failed])
@@ -194,7 +199,8 @@ func _test_tiers() -> void:
 	_check(hs.tier_of(edge) == 1, "34 m is clear of it")
 
 	var none := _scheduler(true, [])
-	_check(none.tier_of(_brain(none, Vector3(900, 0, 0))) == 0, "with no player known everything thinks at full rate")
+	none.config.idle_tier = 0
+	_check(none.tier_of(_brain(none, Vector3(900, 0, 0))) == 0, "with no player known and idle_tier 0 everything thinks at full rate")
 
 	s.unregister(near)
 	_check(s.tier_counts() == PackedInt32Array([0, 1, 1, 1]), "an unregistered brain leaves the counts")
@@ -396,4 +402,122 @@ func _test_cost() -> void:
 	_check(results["tiers_thinks"] < results["off_thinks"] / 2, "far fewer thinks a frame with tiers", "%d against %d" % [results["tiers_thinks"], results["off_thinks"]])
 	_check(results["tiers"] < results["off"] / 2, "and under half the cost a frame, the scheduler's own included")
 	_check(results["tiers+6ms"] < 7.5, "with the budget set to 6 ms the frame stays near it", "%.2f ms" % results["tiers+6ms"])
+	_done()
+
+
+func _test_review_gaps() -> void:
+	_section("gaps a review found")
+
+	# A host that ticks its NPCs slower than the scheduler advances starves nobody.
+	var s := _scheduler()
+	var slow: Array = []
+	for i in 12:
+		slow.append(_brain(s, Vector3(45, 0, 0), 11 + i))
+	for f in 600:
+		s.advance(1.0 / 60.0)
+		if f % 3 == 0:
+			for b: FakeBrain in slow:
+				if s.admit(b, 0.05) >= 0.0:
+					b.thinks += 1
+					s.finish(b)
+	var never := 0
+	var least := 9999
+	for b: FakeBrain in slow:
+		never += 1 if b.thinks == 0 else 0
+		least = mini(least, b.thinks)
+	_check(never == 0, "tier-1 brains all think when the host ticks at a third of the scheduler's rate", "%d never, least %d" % [never, least])
+
+	# The allowance is not spent on brains whose NPC is dead.
+	var c := _scheduler(true, [Vector3.ZERO], 0.2)
+	var dead: Array = []
+	for i in 10:
+		var d := _brain(c, Vector3(5, 0, 0), 100 + i)
+		d.npc.alive = false
+		dead.append(d)
+	var live: Array = []
+	for i in 4:
+		live.append(_brain(c, Vector3(5, 0, 0), 200 + i))
+	for f in 30:
+		_frame(c, live, 100)
+	var live_thinks := 0
+	for b: FakeBrain in live:
+		live_thinks += b.thinks
+	_check(live_thinks >= 56, "dead brains take none of a frame's allowance (two a frame, 30 frames)", "%d of 60" % live_thinks)
+
+	# Time spent disabled, or asleep for ever, is not owed to the next think.
+	var t := _scheduler(false)
+	var sleeper := _brain(t, Vector3(45, 0, 0), 5)
+	for f in 600:
+		t.advance(1.0 / 60.0)
+	t.config.enabled = true
+	t.advance(1.0 / 60.0)
+	_check(t.admit(sleeper, 1.0 / 60.0) <= 0.2, "enabling at run time does not hand over the whole disabled time")
+	t.config.max_catchup_s = 0.5
+	for f in 600:
+		t.advance(1.0 / 60.0)
+	var late := -1.0
+	for f in 60:
+		t.advance(1.0 / 60.0)
+		late = t.admit(sleeper, 1.0 / 60.0)
+		if late >= 0.0:
+			break
+	_check(late > 0.0 and late <= 0.5001, "a long sleep's catch-up is clamped", str(late))
+
+	# A hurt distant brain is brought back at once.
+	var w := _scheduler()
+	var far := _brain(w, Vector3(300, 0, 0), 9)
+	_check(w.tier_of(far) == 3, "a far brain sleeps")
+	far.npc.target = true
+	w.wake(far)
+	_check(w.tier_of(far) <= w.config.engaged_max_tier, "wake() retiers it without waiting for the next sweep", str(w.tier_of(far)))
+	w.advance(1.0 / 60.0)
+	w.wake(far)
+	_check(w.admit(far, 0.016) >= 0.0, "and lets it think this tick")
+
+	# Owed brains do not pile up while disabled or after they leave.
+	var o := _scheduler(true, [Vector3.ZERO], 0.2)
+	var crowd: Array = []
+	for i in 30:
+		crowd.append(_brain(o, Vector3(5, 0, 0), 300 + i))
+	o.advance(1.0 / 60.0)
+	for b in crowd:
+		o.admit(b, 0.016)
+	var owed_before: int = o.describe()["owed"]
+	for i in 10:
+		o.unregister(crowd[i])
+	_check(owed_before > 0 and o.describe()["owed"] < owed_before, "an owed brain that leaves is dropped from the queue", "%d then %d" % [owed_before, o.describe()["owed"]])
+	o.config.enabled = false
+	o.advance(1.0 / 60.0)
+	_check(o.describe()["owed"] == 0, "and a disabled scheduler holds none")
+
+	# No players: asleep, not full rate; an engaged brain still wakes.
+	var e := _scheduler(true, [])
+	var lonely := _brain(e, Vector3(5, 0, 0), 3)
+	_check(e.tier_of(lonely) == 3, "with nobody to see them every brain sleeps", str(e.tier_of(lonely)))
+	lonely.npc.target = true
+	e.wake(lonely)
+	_check(e.tier_of(lonely) <= e.config.engaged_max_tier, "unless it has a target")
+
+	# Paths: a spent allowance is reported as denied, and the tier 0 cap can be asked for.
+	var p := _scheduler()
+	p.advance(0.016)
+	var solve := func() -> Variant: return Vector3.ONE
+	for i in 5:
+		p.cached_path("q%d" % i, solve)
+	_check(p.path_denied, "a denied path request says so, so a caller can tell it from no path")
+	p.cached_path("q0", solve)
+	_check(not p.path_denied, "and a cached answer clears it")
+	p.advance(0.016)
+	var slots := 0
+	for i in 6:
+		slots += 1 if p.take_path_slot() else 0
+	_check(slots == p.config.max_paths_per_frame, "take_path_slot() spends the same per-frame allowance", str(slots))
+
+	# A tier too calm for sight tests is never handed a stale yes.
+	var l := _scheduler()
+	var near := _brain(l, Vector3(10, 0, 0), 1)
+	var calm := _brain(l, Vector3(90, 0, 0), 2)
+	l.advance(0.016)
+	l.cached_los(near, &"k", func() -> bool: return true)
+	_check(l.cached_los(calm, &"k", func() -> bool: return true) == false, "a calm tier is told no even when a yes is cached")
 	_done()

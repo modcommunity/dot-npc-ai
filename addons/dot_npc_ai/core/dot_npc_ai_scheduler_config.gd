@@ -33,8 +33,14 @@ extends DotConfig
 @export_range(0, 3, 1) var engaged_max_tier: int = 1
 ## Ticks between re-working out one brain's tier.
 @export_range(1, 1000, 1) var retier_interval: int = 10
+## Tier every brain is in while no player is known (a server nobody has joined); a brain with a target still gets its engaged cap.
+@export_range(0, 3, 1) var idle_tier: int = 3
 ## Group the default player lookup reads when no source callable is set.
 @export var player_group: String = "players"
+
+@export_group("Time")
+## Longest stretch of skipped time (seconds) one think is handed, so a brain asleep for ever or a scheduler enabled late does not jump.
+@export_range(0.05, 600.0, 0.05) var max_catchup_s: float = 2.0
 
 @export_group("Queries")
 ## Tiers above this one are not allowed line-of-sight tests.
@@ -45,6 +51,10 @@ extends DotConfig
 @export_range(0, 1000, 1) var path_cache_ticks: int = 10
 ## New path computations allowed per frame, over every brain.
 @export_range(1, 1000, 1) var max_paths_per_frame: int = 4
+## Whether tier 0 brains spend the per-frame path allowance too (they never use the path cache).
+@export var cap_tier0_paths: bool = false
+## A brain reuses its path while its destination has moved less than this many metres.
+@export_range(0.0, 50.0, 0.25) var path_reuse_m: float = 3.0
 
 
 func env_prefix() -> String:
@@ -59,3 +69,4 @@ func validate() -> DotResult:
 	if not (full_range <= mid_range and mid_range <= far_range):
 		return DotResult.fail(DotError.CODE_INVALID, "tier ranges must rise: full <= mid <= far")
 	return DotResult.success(null)
+
