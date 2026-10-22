@@ -1711,10 +1711,29 @@ func steer_with_spacing(
 	if direction.length() < 0.001:
 		return
 
+	var av := _avoider()
+	if av != null:
+		var tier := scheduler.tier_of(self) if scheduler != null and is_instance_valid(scheduler) else 0
+		var safe: Vector3 = av.steer(npc.instance_id, npc, direction.normalized() * speed, tier)
+		if safe.length() > 0.001:
+			direction = safe.normalized()
+
 	steer_toward(here + direction * 4.0, speed, delta)
 	_cruise_to = goal
 	_cruise_dest = to
 	_watch_progress(here, to)
+
+
+## The enabled avoidance node on the registry, or null; looked for about once a second.
+func _avoider() -> DotNpcAiAvoidance:
+	if _avoid_node != null and is_instance_valid(_avoid_node):
+		return _avoid_node if _avoid_node.config.enabled else null
+	_avoid_node = null
+	_avoid_probe -= 1
+	if _avoid_probe <= 0:
+		_avoid_probe = 60
+		_avoid_node = DotNpcAiAvoidance.find() as DotNpcAiAvoidance
+	return _avoid_node if _avoid_node != null and _avoid_node.config.enabled else null
 
 
 ## Seconds an NPC steering at somewhere more than a couple of metres off may make no headway
@@ -1722,6 +1741,8 @@ func steer_with_spacing(
 var stuck_seconds: float = 1.5
 
 var _progress_at: Vector3 = Vector3.INF
+var _avoid_node: DotNpcAiAvoidance = null
+var _avoid_probe: int = 0
 var _progress_since: float = 0.0
 
 
