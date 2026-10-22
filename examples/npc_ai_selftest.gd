@@ -19,13 +19,13 @@ const BRAIN := "res://fixtures/zombie_brain.gd"
 const SEARCHER := "res://fixtures/searcher_brain.gd"
 const GUNNER := "res://fixtures/gunner_brain.gd"
 
-const CHECKS := 396
+const CHECKS := 420
 
 ## Sections entered against sections that ran to their last line, and against this. A
 ## runtime error inside a section aborts that function and nothing says so; a section that
 ## bailed out early after a failed guard is counted as not finished on purpose. The CHECKS
 ## total is the other half — see docs/testing.md.
-const SECTIONS := 37
+const SECTIONS := 39
 
 var _passed := 0
 var _failed := 0
@@ -70,6 +70,8 @@ func _run() -> void:
 	_test_brain_on_a_real_npc()
 	_test_brain_under_a_scheduler()
 	_test_throttled_cruise()
+	_test_scheduler_review_gaps()
+	_test_squad_review_gaps()
 	_test_attack_tokens()
 	_test_crowd_separation()
 	_test_server_skill()
@@ -1295,6 +1297,13 @@ func _catalogue() -> DotNpcCatalogue:
 
 	# Chase, search, idle, with its character named in the catalogue rather than chosen by
 	# its script — the half of a character an operator editing JSON can reach.
+	# A body that moves by position alone, so the distance walked is exactly speed times the delta given.
+	var plain := DotNpcDef.make(&"plain", "res://fixtures/npc_plain_body.tscn")
+	plain.brain_script_path = BRAIN
+	plain.require_line_of_sight = false
+	plain.meta = {"speed": 4.0}
+	cat.add(plain)
+
 	var searcher := DotNpcDef.make(&"searcher", BODY)
 	searcher.brain_script_path = SEARCHER
 	searcher.require_line_of_sight = false
@@ -1663,6 +1672,214 @@ func _test_attack_tokens() -> void:
 		"flanking picks a place behind the target", str(behind))
 	var crowded := DotNpcAiTactics.best_flank(Vector3.ZERO, Vector3(1, 0, 0), Vector3(3, 0, 0), 4.0, [behind], cfg)
 	_check(crowded.distance_to(behind) >= cfg.flank_ally_radius, "and not the one an ally already holds", str(crowded))
+	_done()
+
+
+func _plain_walker(spawner: DotNpcSpawner, at: Vector3, goal: Vector3) -> DotNpcAiBrain:
+	var brain := spawner.spawn(&"plain", at).brain as DotNpcAiBrain
+	brain.machine = null
+	brain.tree = DotNpcAiLeaf.Action.new(&"go", func(ctx: DotNpcAiContext) -> DotNpcAiNode.Status:
+		brain.steer_toward(goal, 6.0, ctx.delta)
+		return DotNpcAiNode.Status.RUNNING)
+	return brain
+
+
+func _sched_on(players: Array = [Vector3.ZERO]) -> DotNpcAiScheduler:
+	var sched := DotNpcAiScheduler.new()
+	var cfg := DotNpcAiSchedulerConfig.new()
+	cfg.enabled = true
+	sched.apply_config(cfg)
+	sched.auto_advance = false
+	sched.players_source = func() -> Array: return players
+	_world.add_child(sched)
+	sched.register_service()
+	return sched
+
+
+func _test_scheduler_review_gaps() -> void:
+	_section("scheduler gaps a review found")
+
+	var sched := _sched_on()
+	var spawner := _spawner()
+	var near := _plain_walker(spawner, Vector3(5, 0, 0), Vector3(900, 0, 0))
+	var mid := _plain_walker(spawner, Vector3(0, 0, 45), Vector3(0, 0, 900))
+	var calm := _plain_walker(spawner, Vector3(-100, 0, 0), Vector3(-900, 0, 0))
+	_check(sched.tier_of(near) == 0 and sched.tier_of(mid) == 1 and sched.tier_of(calm) == 2, "walkers sit in tiers 0, 1 and 2")
+	var near0 := near.npc.position()
+	var mid0 := mid.npc.position()
+	var calm0 := calm.npc.position()
+	for i in 240:
+		sched.advance(1.0 / 60.0)
+		spawner.tick(1.0 / 60.0)
+	var d_near := near.npc.position().distance_to(near0)
+	var d_mid := mid.npc.position().distance_to(mid0)
+	var d_calm := calm.npc.position().distance_to(calm0)
+	_check(absf(d_mid - d_near) <= 0.5 and absf(d_calm - d_near) <= 1.0,
+		"a throttled walker covers the distance a tier 0 one does, not more", "%.1f, %.1f, %.1f m" % [d_near, d_mid, d_calm])
+
+	# Hurt, or newly engaged, and a sleeper is tiered and thinks at once.
+	var sleeper := _plain_walker(spawner, Vector3(300, 0, 0), Vector3(900, 0, 0))
+	_check(sched.tier_of(sleeper) == 3, "a distant walker sleeps")
+	sleeper.damaged(1.0, &"p")
+	_check(sched.tier_of(sleeper) <= 1, "being hurt wakes it", str(sched.tier_of(sleeper)))
+	var sleeper2 := _plain_walker(spawner, Vector3(300, 0, 5), Vector3(900, 0, 0))
+	spawner.target_changed.emit(sleeper2.npc, &"p")
+	_check(sched.tier_of(sleeper2) <= 1, "and so does the spawner reporting it a target", str(sched.tier_of(sleeper2)))
+
+	# halt() stops a throttled walker from carrying on.
+	var halted := _plain_walker(spawner, Vector3(0, 0, -100), Vector3(0, 0, -900))
+	for i in 40:
+		sched.advance(1.0 / 60.0)
+		spawner.tick(1.0 / 60.0)
+	halted.tree = DotNpcAiLeaf.Action.new(&"stop", func(_c: DotNpcAiContext) -> DotNpcAiNode.Status:
+		halted.halt()
+		return DotNpcAiNode.Status.RUNNING)
+	for i in 12:
+		sched.advance(1.0 / 60.0)
+		spawner.tick(1.0 / 60.0)
+	var drift := 0.0
+	var skipped_ticks := 0
+	for i in 8:
+		var thought := sched.thinks_of(halted)
+		var p0 := halted.npc.position()
+		sched.advance(1.0 / 60.0)
+		spawner.tick(1.0 / 60.0)
+		if sched.thinks_of(halted) == thought:
+			skipped_ticks += 1
+			drift += p0.distance_to(halted.npc.position())
+	_check(skipped_ticks > 0 and drift < 0.001, "halt() ends the cruise", "%.3f m over %d skipped ticks" % [drift, skipped_ticks])
+
+	# Path denial falls back to the last waypoint, never a straight line.
+	var stub := StubDirector.new()
+	spawner = _spawner()
+	var first := _plain_walker(spawner, Vector3(45, 0, 0), Vector3.ZERO)
+	var second := _plain_walker(spawner, Vector3(45, 0, 3), Vector3.ZERO)
+	sched.config.max_paths_per_frame = 1
+	first.director = stub
+	second.director = stub
+	second._waypoint = Vector3(45, 0, 20)
+	sched.advance(1.0 / 60.0)
+	first.steer_with_spacing(Vector3(100, 0, 0), 6.0, 0.1)
+	var before := second.npc.position()
+	second.steer_with_spacing(Vector3(100, 0, 3), 6.0, 0.1)
+	var moved := second.npc.position() - before
+	_check(stub.path_calls == 1, "only the first of two path requests in a frame is computed", str(stub.path_calls))
+	_check(moved.z > 0.1 and moved.x < 0.1, "the refused one keeps to its last waypoint instead of cutting straight to the target", str(moved))
+	var nowhere := _plain_walker(spawner, Vector3(45, 0, 6), Vector3.ZERO)
+	nowhere.director = stub
+	var n0 := nowhere.npc.position()
+	nowhere.steer_with_spacing(Vector3(100, 0, 6), 6.0, 0.1)
+	_check(nowhere.npc.position().distance_to(n0) < 0.01, "and one with no waypoint at all waits for the next frame")
+
+	# A path follows a target that moves a little.
+	var moving := _plain_walker(spawner, Vector3(45, 0, 9), Vector3.ZERO)
+	moving.director = stub
+	stub.path_calls = 0
+	for i in 8:
+		sched.advance(1.0 / 60.0)
+		moving._path_goal(Vector3(100 + 0.5 * i, 0, 9))
+	_check(stub.path_calls <= 2 and stub.path_calls >= 1, "a path is reused while its destination only drifts", str(stub.path_calls))
+
+	# Sight tests: cached for a tier that may test, refused (not stale) for one that may not.
+	var calls := [0]
+	var probe := func() -> bool:
+		calls[0] += 1
+		return true
+	var seer := _plain_walker(spawner, Vector3(10, 0, 0), Vector3.ZERO)
+	sched.advance(1.0 / 60.0)
+	_check(seer.line_clear(Vector3(9, 0, 0), probe) and seer.line_clear(Vector3(9, 0, 0), probe) and calls[0] == 1, "a sight test is reused")
+	seer.npc.node.global_position = Vector3(100, 0, 0)
+	for i in 12:
+		sched.advance(1.0 / 60.0)
+	_check(sched.tier_of(seer) >= 2 and seer.line_clear(Vector3(9, 0, 0), probe) == false, "and a tier too calm for it gets no, not the old yes")
+
+	# A scheduler registered after the brains were bound is found.
+	DotRegistry.unregister(DotNpcAiScheduler.SERVICE)
+	sched.free()
+	var late_spawner := _spawner()
+	var orphan := _plain_walker(late_spawner, Vector3(5, 0, 0), Vector3(900, 0, 0))
+	var counted := [0]
+	orphan.tree = DotNpcAiLeaf.Action.new(&"count", func(_c: DotNpcAiContext) -> DotNpcAiNode.Status:
+		counted[0] += 1
+		return DotNpcAiNode.Status.RUNNING)
+	_check(orphan.scheduler == null, "a brain bound with no scheduler has none")
+	var late := _sched_on()
+	for i in 200:
+		late.advance(1.0 / 60.0)
+		late_spawner.tick(1.0 / 60.0)
+	_check(orphan.scheduler == late and late.thinks_of(orphan) > 0, "and finds one registered later", str(late.thinks_of(orphan)))
+
+	# A scheduler freed under the brains costs them nothing but its gating.
+	DotRegistry.unregister(DotNpcAiScheduler.SERVICE)
+	late.free()
+	var before_count: int = counted[0]
+	for i in 30:
+		late_spawner.tick(1.0 / 60.0)
+	_check(counted[0] - before_count == 30, "a freed scheduler leaves every brain thinking each tick", str(counted[0] - before_count))
+	orphan.line_clear(Vector3.ONE, probe)
+	orphan._path_goal(Vector3.ONE)
+	stub.free()
+	_done()
+
+
+func _test_squad_review_gaps() -> void:
+	_section("squad gaps a review found")
+
+	# A departed member leaves no cooldown behind, and an expired one is dropped.
+	var squad := _token_squad(2, 2)
+	var m := _token_members(squad, 4)
+	squad.take_token(m[0], &"a", 0.0)
+	squad.release_token(m[0], &"manual", 0.1)
+	squad.take_token(m[1], &"a", 0.1)
+	squad.release_token(m[1], &"manual", 0.2)
+	_check(squad._cooldown_until.size() == 2, "two given-up tokens leave two cooldowns")
+	squad.leave(m[0])
+	_check(squad._cooldown_until.size() == 1, "and leaving drops the leaver's")
+	squad.sweep(5.0)
+	_check(squad._cooldown_until.is_empty(), "an expired cooldown is dropped on the next sweep")
+
+	# A refused first waiter that went quiet does not hold a free token.
+	var q := _token_squad(1, 1)
+	var qm := _token_members(q, 3)
+	q.take_token(qm[0], &"a", 0.0)
+	q.take_token(qm[1], &"a", 0.0)
+	q.take_token(qm[2], &"a", 0.1)
+	q.release_token(qm[0], &"kill", 0.2)
+	_check(q.take_token(qm[2], &"a", 0.5), "a free token goes to an asker, not to a throttled waiter who has not asked for 0.5 s")
+	var busy := _token_squad(1, 1)
+	var bm := _token_members(busy, 3)
+	busy.take_token(bm[0], &"a", 0.0)
+	busy.take_token(bm[1], &"a", 0.0)
+	busy.take_token(bm[2], &"a", 0.05)
+	busy.release_token(bm[0], &"kill", 0.1)
+	busy.take_token(bm[1], &"a", 0.1)
+	_check(busy.has_token(bm[1]) and not busy.take_token(bm[2], &"a", 0.1), "while one still asking keeps its turn")
+
+	# Tokens off: none are kept.
+	var off := _token_squad(2, 2)
+	var om := _token_members(off, 2)
+	off.take_token(om[0], &"a", 0.0)
+	off.tokens.enabled = false
+	off.sweep(0.1)
+	_check(off.token_count() == 0, "switching tokens off drops the ones held")
+
+	# Tokens switched on while members already hold plain attack slots.
+	var spawner := _spawner()
+	DotNpcAiSquads.new().attach(spawner)
+	var a := spawner.spawn(&"soldier", Vector3(0, 0, 0))
+	var b := spawner.spawn(&"soldier", Vector3(3, 0, 0))
+	var ba := a.brain as DotNpcAiBrain
+	var bb := b.brain as DotNpcAiBrain
+	a.target_id = &"p"
+	b.target_id = &"p"
+	_check(ba.claim_role(DotNpcAiBrain.ROLE_ATTACK, 2) and bb.claim_role(DotNpcAiBrain.ROLE_ATTACK, 2), "two attack slots are held without tokens")
+	ba.squad.tokens.enabled = true
+	ba.squad.tokens.pool_size = 1
+	ba.squad.tokens.per_target_cap = 1
+	var got_a := ba.claim_role(DotNpcAiBrain.ROLE_ATTACK, 2)
+	var got_b := bb.claim_role(DotNpcAiBrain.ROLE_ATTACK, 2)
+	_check(got_a != got_b, "with one token only one of them still attacks", "%s and %s" % [got_a, got_b])
+	_check(ba.squad.holder_count(&"attack:p") == 1, "and the other's slot is given up with the refusal", str(ba.squad.holder_count(&"attack:p")))
 	_done()
 
 

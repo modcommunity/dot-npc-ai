@@ -81,6 +81,7 @@ func leave(member: Object) -> void:
 
 	var key := member.get_instance_id()
 	_members.erase(key)
+	_cooldown_until.erase(key)
 	release_all(key)
 
 
@@ -344,7 +345,7 @@ func token_count(target: StringName = &"") -> int:
 	return n
 
 
-## Gives a token back; [param reason] is one of kill, timeout, los, left, manual. Every reason but kill starts the re-take cooldown.
+## Gives a token back; [param reason] is one of kill, timeout, los, left, manual, claim. Every reason but kill, left and claim starts the re-take cooldown.
 func release_token(member: Object, reason: StringName, now: float) -> void:
 	if member != null and _tokens.has(member.get_instance_id()):
 		_drop_token(member.get_instance_id(), reason, now)
@@ -377,6 +378,16 @@ func sweep(now: float) -> void:
 
 	_last_swept = now
 
+	if not tokens.enabled:
+		_tokens.clear()
+		_cooldown_until.clear()
+		_waiting_since.clear()
+		return
+
+	for key in _cooldown_until.keys():
+		if float(_cooldown_until[key]) <= now or not _members.has(key):
+			_cooldown_until.erase(key)
+
 	for key in _tokens.keys():
 		var held: Dictionary = _tokens[key]
 		var ref: WeakRef = _members.get(key)
@@ -402,7 +413,7 @@ func _drop_token(key: int, reason: StringName, now: float) -> void:
 	_tokens.erase(key)
 	token_stats[String(reason)] = int(token_stats.get(String(reason), 0)) + 1
 
-	if reason != &"kill" and reason != &"left":
+	if reason != &"kill" and reason != &"left" and reason != &"claim":
 		_cooldown_until[key] = now + tokens.retake_cooldown_s
 
 	var slot := StringName(ATTACK_PREFIX + String(held["target"]))
@@ -423,8 +434,8 @@ func _is_first_waiter(key: int, target: StringName, now: float) -> bool:
 
 		var wait: Array = _waiting_since[other]
 		var fresh: bool = float(wait[1]) < mine and wait[0] == target
-		# A waiter that stopped asking for a window no longer holds the queue.
-		var asking: bool = now - float(wait[2]) <= tokens.wait_window_s
+		# A waiter that stopped asking (throttled, or gone) does not hold a free token back.
+		var asking: bool = now - float(wait[2]) <= minf(tokens.wait_window_s, tokens.waiter_grace_s)
 
 		if fresh and asking and float(_cooldown_until.get(other, -INF)) <= now and _members.has(other):
 			return false

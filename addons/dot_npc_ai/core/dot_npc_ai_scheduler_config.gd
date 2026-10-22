@@ -31,6 +31,8 @@ extends DotConfig
 @export_range(0, 3, 1) var unseen_penalty: int = 1
 ## A brain with a target is never calmer than this tier.
 @export_range(0, 3, 1) var engaged_max_tier: int = 1
+## Ticks a woken brain (hurt, or given a target) is held at its engaged tier at least.
+@export_range(0, 10000, 1) var alert_ticks: int = 120
 ## Ticks between re-working out one brain's tier.
 @export_range(1, 1000, 1) var retier_interval: int = 10
 ## Tier every brain is in while no player is known (a server nobody has joined); a brain with a target still gets its engaged cap.

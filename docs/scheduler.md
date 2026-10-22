@@ -33,7 +33,7 @@ A skipped brain returns early from `_npc_think`; the next think gets the time of
 
 ## Between thinks
 
-A throttled brain keeps walking the last point it steered at (`cruise_between_thinks`, on by default): movement only, no sensing, no tree. On reaching a waypoint it asks for the next through the path cache. The next real think clears it, so a tree that stops stops.
+A throttled brain keeps walking the last point it steered at (`cruise_between_thinks`, on by default): movement only, no sensing, no tree. On reaching a waypoint it asks for the next through the path cache. The next real think clears it, and so does `halt()`, so a tree that stops stops. Movement always uses the tick's own delta, never the catch-up one (that is for cooldowns and timeouts). A refused path request falls back to the last waypoint, or waits a frame, never a straight line through walls. A scheduler registered after a brain was bound is found within about a second; a freed one is dropped.
 
 ## Not done
 

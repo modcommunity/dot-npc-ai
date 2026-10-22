@@ -59,6 +59,7 @@ var admitted: int = 0
 var _time: float = 0.0
 var _slots: Array[Slot] = []
 var _by_id: Dictionary = {}
+var _by_npc: Dictionary = {}
 var _owed: Array[Slot] = []
 var _owed_head: int = 0
 var _est_cost_us: float = 100.0
@@ -84,6 +85,7 @@ class Slot extends RefCounted:
 	var owed: bool = false
 	var live: bool = true
 	var has_alive: bool = false
+	var alert_until: int = -1
 	var index: int = 0
 	var thinks: int = 0
 
@@ -145,6 +147,8 @@ func register(brain: Object) -> void:
 	slot.index = _slots.size()
 	_slots.append(slot)
 	_by_id[id] = slot
+	if slot.npc != null:
+		_by_npc[slot.npc.get_instance_id()] = slot
 	_retier(slot)
 
 
@@ -155,6 +159,8 @@ func unregister(brain: Object) -> void:
 	if slot == null:
 		return
 	_by_id.erase(id)
+	if slot.npc != null:
+		_by_npc.erase(slot.npc.get_instance_id())
 	slot.live = false
 	if slot.owed:
 		slot.owed = false
@@ -287,9 +293,17 @@ func wake(brain: Object) -> void:
 	if _players_tick != tick:
 		_players = _read_players()
 		_players_tick = tick
+	slot.alert_until = tick + config.alert_ticks
 	_retier(slot)
 	if slot.interval != 0 and not slot.owed and slot.go_tick < 0:
 		slot.go_tick = tick
+
+
+## Wakes the brain of [param npc] when [param target] is not empty. Connect a spawner's `target_changed` to this.
+func notice_target(npc: Object, target: StringName) -> void:
+	var slot: Slot = _by_npc.get(npc.get_instance_id()) if npc != null else null
+	if slot != null and target != &"":
+		wake(slot.brain)
 
 
 ## The tier [param brain] is in, 0 to [constant TIERS] - 1; 0 when it is not registered.
@@ -444,7 +458,7 @@ func _retier(slot: Slot) -> void:
 		if config.unseen_penalty > 0 and visibility_source.is_valid() and not visibility_source.call(at):
 			tier = mini(tier + config.unseen_penalty, TIERS - 1)
 
-	if slot.npc != null and slot.npc.call(&"has_target"):
+	if tick < slot.alert_until or (slot.npc != null and slot.npc.call(&"has_target")):
 		tier = mini(tier, config.engaged_max_tier)
 
 	slot.tier = tier

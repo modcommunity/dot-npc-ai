@@ -149,6 +149,17 @@ var scheduler: DotNpcAiScheduler = null
 var cruise_between_thinks: bool = true
 
 var _cruise_on: bool = false
+var _thinking: bool = false
+var _step_delta: float = 0.0
+var _sched_probe: int = 60
+var _waypoint: Vector3 = Vector3.INF
+var _path_denied: bool = false
+var _pg_to: Vector3 = Vector3.ZERO
+var _pg_goal: Vector3 = Vector3.INF
+var _pg_until: int = -1
+var _los_to: Vector3 = Vector3.ZERO
+var _los_val: bool = false
+var _los_until: int = -1
 var _cruising: bool = false
 var _cruise_to: Vector3 = Vector3.ZERO
 var _cruise_speed: float = 0.0
@@ -174,7 +185,7 @@ var _applied: DotNpcAiCharacter = null
 
 
 func _npc_ready() -> void:
-	scheduler = DotNpcAiScheduler.find() as DotNpcAiScheduler
+	scheduler = _find_scheduler()
 	blackboard = DotNpcAiBlackboard.new()
 	context = DotNpcAiContext.make(npc, self, blackboard)
 	memory = DotNpcAiMemory.new()
@@ -236,19 +247,54 @@ func _npc_ready() -> void:
 			})
 
 	if scheduler != null:
-		scheduler.register(self)
+		_join_scheduler()
+
+
+## The scheduler on the registry, or null.
+func _find_scheduler() -> DotNpcAiScheduler:
+	var found: Object = DotNpcAiScheduler.find()
+	return found as DotNpcAiScheduler if found != null and is_instance_valid(found) else null
+
+
+func _join_scheduler() -> void:
+	scheduler.register(self)
+	if director != null and director.has_signal(&"target_changed") \
+			and not director.is_connected(&"target_changed", scheduler.notice_target):
+		director.connect(&"target_changed", scheduler.notice_target)
+
+
+## The live scheduler or null: a freed one is dropped, and one registered after this brain was bound is found within a second.
+func _sched() -> DotNpcAiScheduler:
+	if scheduler != null:
+		if is_instance_valid(scheduler):
+			return scheduler
+		scheduler = null
+
+	_sched_probe -= 1
+	if _sched_probe <= 0:
+		_sched_probe = 60
+		scheduler = _find_scheduler()
+		if scheduler != null and context != null:
+			_join_scheduler()
+	return scheduler
 
 
 func _npc_think(delta: float) -> void:
 	if context == null:
 		return
 
+	_thinking = false
+	var sched := _sched()
+
 	# The delta of every tick skipped since the last think, so cooldowns and timeouts keep real time.
-	if scheduler != null:
-		var admitted := scheduler.admit(self, delta)
+	# Movement keeps the tick's own delta: the skipped ticks were walked by _cruise.
+	if sched != null:
+		var admitted := sched.admit(self, delta)
 		if admitted < 0.0:
 			_cruise(delta)
 			return
+		_step_delta = delta
+		_thinking = true
 		delta = admitted
 
 	_cruise_on = false
@@ -266,12 +312,16 @@ func _npc_think(delta: float) -> void:
 	if machine != null:
 		machine.tick(context)
 
-	if scheduler != null:
-		scheduler.finish(self)
+	_thinking = false
+	if sched != null and is_instance_valid(sched):
+		sched.finish(self)
 
 
 ## Records where this think steered, so a throttled tick can keep walking there.
 func steer_toward(to: Vector3, speed: float, delta: float) -> void:
+	if _thinking:
+		delta = _step_delta
+
 	if not _cruising:
 		_cruise_on = true
 		_cruise_to = to
@@ -286,8 +336,11 @@ func steer_along_path(to: Vector3, speed: float, delta: float) -> void:
 	if npc == null or not npc.is_alive():
 		return
 
-	var goal := _path_goal(to)
-	steer_toward(goal if goal != Vector3.INF else to, speed, delta)
+	var goal := _steer_goal(to)
+	_cruise_dest = to
+	if goal == Vector3.INF:
+		return
+	steer_toward(goal, speed, delta)
 	_cruise_dest = to
 
 
@@ -320,29 +373,80 @@ func _cruise(delta: float) -> void:
 	_cruising = false
 
 
-## The next point on the way to [param to] from the director's path, or INF. Calmer tiers reuse it for a few ticks.
+## The next point on the way to [param to] from the director's path, or INF. Sets [member _path_denied] when the scheduler refused to compute one.
+## Calmer tiers reuse a path while the destination drifts less than `path_reuse_m`; allocation-free.
 func _path_goal(to: Vector3) -> Vector3:
+	_path_denied = false
 	if director == null or not director.has_method(&"path_toward"):
 		return Vector3.INF
 
-	var compute := func() -> Variant: return director.call(&"path_toward", npc, path, to)
-	var found: Variant
+	var sched := _sched()
+	if sched == null or not sched.config.enabled:
+		return _as_goal(director.call(&"path_toward", npc, path, to))
 
-	if scheduler != null and scheduler.config.enabled and scheduler.tier_of(self) > 0:
-		found = scheduler.cached_path([get_instance_id(), to.snapped(Vector3.ONE)], compute)
-	else:
-		found = compute.call()
+	var capped := sched.config.cap_tier0_paths
+	if sched.tier_of(self) == 0 and not capped:
+		return _as_goal(director.call(&"path_toward", npc, path, to))
 
-	return found if found is Vector3 else Vector3.INF
+	var reuse := sched.config.path_reuse_m
+	if sched.tick < _pg_until and _pg_to.distance_squared_to(to) <= reuse * reuse:
+		sched.stats["cache_hits"] += 1
+		return _pg_goal
+
+	if not sched.take_path_slot():
+		_path_denied = true
+		return Vector3.INF
+
+	var goal := _as_goal(director.call(&"path_toward", npc, path, to))
+	if sched.tier_of(self) > 0:
+		_pg_to = to
+		_pg_goal = goal
+		_pg_until = sched.tick + sched.config.path_cache_ticks
+	return goal
+
+
+func _as_goal(found: Variant) -> Vector3:
+	if found is Vector3:
+		_waypoint = found
+		return found
+	return Vector3.INF
+
+
+## Where to steer for [param to]: the path's next point, the target itself when there is no path, the last waypoint
+## when the scheduler refused a path this frame (a straight line would cut through walls), or INF to wait.
+func _steer_goal(to: Vector3) -> Vector3:
+	var goal := _path_goal(to)
+	if goal != Vector3.INF:
+		return goal
+	return _waypoint if _path_denied else to
 
 
 ## Whether the line to [param to] is clear, reusing the answer for a few ticks under a scheduler.
 ## [param compute] is `func() -> bool`; a tier too calm for sight tests is told no.
 func line_clear(to: Vector3, compute: Callable) -> bool:
-	if scheduler == null:
+	var sched := _sched()
+	if sched == null or not sched.config.enabled:
 		return compute.call()
 
-	return scheduler.cached_los(self, [get_instance_id(), to.snapped(Vector3.ONE)], compute)
+	if not sched.los_allowed(self):
+		sched.stats["los_blocked"] += 1
+		return false
+
+	if sched.tick < _los_until and _los_to.distance_squared_to(to) <= 1.0:
+		sched.stats["cache_hits"] += 1
+		return _los_val
+
+	_los_val = compute.call()
+	_los_to = to
+	_los_until = sched.tick + sched.config.los_cache_ticks
+	sched.stats["los_hits"] += 1
+	return _los_val
+
+
+## Stops the body and the between-thinks walk with it.
+func halt() -> void:
+	_cruise_on = false
+	super()
 
 
 ## Being hurt is information, and it arrives here whatever the subclass does with it.
@@ -352,6 +456,9 @@ func line_clear(to: Vector3, compute: Callable) -> bool:
 ## in exactly the brains that need it.
 func damaged(amount: float, by: StringName) -> void:
 	_hurt_by(by, amount)
+	var sched := _sched()
+	if sched != null:
+		sched.wake(self)
 	super(amount, by)
 
 
@@ -377,6 +484,7 @@ func _npc_unbound() -> void:
 	if scheduler != null and is_instance_valid(scheduler):
 		scheduler.unregister(self)
 	scheduler = null
+	_sched_probe = 1 << 30
 
 	if context != null:
 		context.brain = null
@@ -554,8 +662,9 @@ func _sense() -> void:
 	if has_target and holds_attack_slot():
 		c.set_flag(DotNpcAiConditions.HAS_ATTACK_SLOT)
 
-	if squad != null and squad.tokens.enabled:
-		squad.token_sight(self, c.has(DotNpcAiConditions.SEE_ENEMY), _world_now())
+	if squad != null:
+		if squad.tokens.enabled:
+			squad.token_sight(self, c.has(DotNpcAiConditions.SEE_ENEMY), _world_now())
 		squad.sweep(_world_now())
 
 
@@ -837,11 +946,22 @@ func claim_role(role: StringName, capacity: int) -> bool:
 	var slot := _role_slot(role, npc.target_id)
 
 	if role == ROLE_ATTACK and squad.tokens.enabled:
-		if not squad.holds(slot, self) and squad.holder_count(slot) >= capacity:
+		var held := squad.holds(slot, self)
+
+		if not held and squad.holder_count(slot) >= capacity:
 			return false
 
 		if not squad.take_token(self, npc.target_id, _world_now()):
+			# A slot taken before tokens were switched on does not outlive the refusal.
+			if held:
+				squad.release(slot, self)
 			return false
+
+		if not squad.claim(slot, self, capacity):
+			squad.release_token(self, &"claim", _world_now())
+			return false
+
+		return true
 
 	return squad.claim(slot, self, capacity)
 
@@ -1538,10 +1658,11 @@ func steer_with_spacing(
 	if npc == null or not npc.is_alive():
 		return
 
-	var goal := _path_goal(to)
+	var goal := _steer_goal(to)
 
 	if goal == Vector3.INF:
-		goal = to
+		_cruise_dest = to
+		return
 
 	var here := npc.position()
 	var wanted := DotNpcAiSteering.seek(here, goal)
@@ -1611,7 +1732,7 @@ func describe() -> Dictionary:
 	out["conditions"] = ", ".join(context.conditions.names()) if context != null else ""
 	out["remembers"] = memory.size() if memory != null else 0
 	out["squad"] = String(squad_name) if squad != null else "-"
-	out["lod_tier"] = scheduler.tier_of(self) if scheduler != null else 0
+	out["lod_tier"] = scheduler.tier_of(self) if scheduler != null and is_instance_valid(scheduler) else 0
 
 	if character != null:
 		out["reaction"] = "%.2fs" % character.reaction_time

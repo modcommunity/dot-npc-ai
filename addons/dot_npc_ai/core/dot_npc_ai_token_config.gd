@@ -21,6 +21,8 @@ extends DotConfig
 @export_range(0.0, 600.0, 0.1) var retake_cooldown_s: float = 3.0
 ## Seconds a refused member counts as still waiting; the longest waiter is served first.
 @export_range(0.1, 60.0, 0.1) var wait_window_s: float = 1.5
+## A refused member that has not asked again within this long (throttled, or gone) does not hold a free token back.
+@export_range(0.0, 60.0, 0.05) var waiter_grace_s: float = 0.25
 ## Seed of the jitter, so a recorded fight replays.
 @export var seed: int = 1
 
