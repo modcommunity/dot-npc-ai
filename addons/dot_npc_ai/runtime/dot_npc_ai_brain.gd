@@ -148,6 +148,9 @@ var scheduler: DotNpcAiScheduler = null
 ## Whether a skipped think keeps walking the last steering target (cheap movement, no sensing).
 var cruise_between_thinks: bool = true
 
+## The utility scorer, or null (the default: off). See [method use_utility].
+var utility: DotNpcAiUtility = null
+
 var _cruise_on: bool = false
 var _thinking: bool = false
 var _step_delta: float = 0.0
@@ -248,6 +251,25 @@ func _npc_ready() -> void:
 
 	if scheduler != null:
 		_join_scheduler()
+
+
+## Turns utility scoring on with [param config] (ignored unless it is enabled) and gives this NPC its personality for [param role]. Returns the scorer to add actions to.
+func use_utility(config: DotNpcAiUtilityConfig, role: StringName = &"") -> DotNpcAiUtility:
+	if config == null or not config.enabled:
+		utility = null
+		return null
+	utility = DotNpcAiUtility.new()
+	utility.config = config
+	utility.npc_seed = npc.seed if npc != null else 0
+	utility.personality = config.personality_for(utility.npc_seed, role)
+	return utility
+
+
+## The utility choice for this think, or an empty name with scoring off. Re-scored only once per think, so every gate in a tree shares it.
+func utility_choose() -> StringName:
+	if utility == null or context == null:
+		return &""
+	return utility.choose(context.now)
 
 
 ## The scheduler on the registry, or null.
@@ -1734,6 +1756,9 @@ func describe() -> Dictionary:
 	out["squad"] = String(squad_name) if squad != null else "-"
 	out["lod_tier"] = scheduler.tier_of(self) if scheduler != null and is_instance_valid(scheduler) else 0
 
+	if utility != null:
+		out["utility"] = utility.describe()
+
 	if character != null:
 		out["reaction"] = "%.2fs" % character.reaction_time
 
@@ -1758,5 +1783,8 @@ func describe_lines() -> PackedStringArray:
 
 	if squad != null:
 		out.append_array(squad.describe_lines())
+
+	if utility != null:
+		out.append_array(utility.describe_lines())
 
 	return out

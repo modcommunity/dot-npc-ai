@@ -13,5 +13,6 @@ extends RefCounted
 #    _keep_link and _hide_score to override, los_fn to assign), DotNpcAiNavDebug.
 # 3: DotNpcAiTokenConfig, DotNpcAiSquad attack tokens (take_token, release_token, token_sight, sweep),
 #    DotNpcAiTactics.best_flank, DotNpcAiBrain.hold_off, line_clear and cruise_between_thinks, DotNpcAiScheduler.
-const LEVEL := 3
+# 4: utility scoring: DotNpcAiCurve, DotNpcAiPersonality, DotNpcAiUtility, DotNpcAiUtilityConfig, DotNpcAiUtilityGate, DotNpcAiBrain.use_utility and utility_choose.
+const LEVEL := 4
 const OLDEST := 1
