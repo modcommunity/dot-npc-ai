@@ -23,7 +23,7 @@ extends RefCounted
 ## dot-core only: a member is any object with the methods it is called with, which is how
 ## [DotNpcAiBrain] joins without this file naming it.
 
-# No log channel: squads are made and asked every think; their decisions are the brains'.
+# Slots and sharing are asked every think and do not log; the token pool logs its grants and releases.
 
 var squad_name: StringName = &""
 
@@ -40,6 +40,25 @@ var _memo_at: float = -INF
 
 ## How many reports were passed on. For a console command and a suite.
 var shared_count: int = 0
+
+## Attack tokens: a pool with a per-target cap on top of the plain slots. Off until `tokens.enabled`.
+var tokens: DotNpcAiTokenConfig = DotNpcAiTokenConfig.new()
+
+## Counts of grants, refusals and each release reason, for describe() and suites.
+var token_stats := {"granted": 0, "refused": 0, "kill": 0, "timeout": 0, "los": 0, "left": 0, "manual": 0}
+
+const CHANNEL := "npc.ai.squad"
+
+## The slot prefix a token release also frees, so a brain that lost its token stops holding the attack.
+const ATTACK_PREFIX := "attack:"
+
+## member id -> {"target", "taken", "until", "unseen_since"}.
+var _tokens: Dictionary = {}
+var _cooldown_until: Dictionary = {}
+var _waiting_since: Dictionary = {}
+var _last_swept: float = -INF
+var _rng := RandomNumberGenerator.new()
+var _rng_seed: int = -1
 
 
 func _init(p_name: StringName = &"") -> void:
@@ -197,6 +216,11 @@ func release_all(key: int) -> void:
 	for slot in _slots.keys():
 		(_slots[slot] as Array).erase(key)
 
+	if _tokens.has(key):
+		_drop_token(key, &"left", _last_swept)
+
+	_waiting_since.erase(key)
+
 
 func holds(slot: StringName, member: Object) -> bool:
 	return member != null and _live_holders(slot).has(member.get_instance_id())
@@ -257,6 +281,163 @@ func _live_holders(slot: StringName) -> Array:
 	return live
 
 
+# --- Attack tokens ------------------------------------------------------------
+
+## Asks for an attack token against [param target] at clock reading [param now]; true when [param member] holds one.
+##
+## [b]Pool, cap and queue.[/b] At most `pool_size` in all, `per_target_cap` on one target; a refused
+## member waits, and when room appears the longest waiter on that target goes first so none starves.
+## One that lost its token to a timeout or lost sight sits out `retake_cooldown_s`, which is what rotates attackers.
+func take_token(member: Object, target: StringName, now: float) -> bool:
+	if member == null:
+		return false
+
+	sweep(now)
+	var key := member.get_instance_id()
+	var held: Dictionary = _tokens.get(key, {})
+
+	if not held.is_empty():
+		if held["target"] == target:
+			return true
+		_drop_token(key, &"manual", now)
+
+	if float(_cooldown_until.get(key, -INF)) > now:
+		return false
+
+	var on_target := 0
+	for other in _tokens.values():
+		if other["target"] == target:
+			on_target += 1
+
+	if _tokens.size() >= tokens.pool_size or on_target >= tokens.per_target_cap or not _is_first_waiter(key, target, now):
+		var wait: Array = _waiting_since.get(key, [target, now, now])
+		if wait[0] != target:
+			wait = [target, now, now]
+		wait[2] = now
+		_waiting_since[key] = wait
+		token_stats["refused"] += 1
+		return false
+
+	_waiting_since.erase(key)
+	_seed_rng()
+	var life := tokens.timeout_s * (1.0 - tokens.timeout_jitter * _rng.randf())
+	_tokens[key] = {"target": target, "taken": now, "until": now + life, "unseen_since": INF}
+	token_stats["granted"] += 1
+	DotLog.debug(CHANNEL, "attack token granted", {"squad": String(squad_name), "target": String(target), "held": _tokens.size()})
+	return true
+
+
+## Whether [param member] holds a token now.
+func has_token(member: Object) -> bool:
+	return member != null and _tokens.has(member.get_instance_id())
+
+
+## Tokens held now, in all or against one [param target] (empty for all).
+func token_count(target: StringName = &"") -> int:
+	if target == &"":
+		return _tokens.size()
+
+	var n := 0
+	for held in _tokens.values():
+		if held["target"] == target:
+			n += 1
+	return n
+
+
+## Gives a token back; [param reason] is one of kill, timeout, los, left, manual. Every reason but kill starts the re-take cooldown.
+func release_token(member: Object, reason: StringName, now: float) -> void:
+	if member != null and _tokens.has(member.get_instance_id()):
+		_drop_token(member.get_instance_id(), reason, now)
+
+
+## Takes back every token held against [param target]: it died or went.
+func release_target_tokens(target: StringName, now: float) -> void:
+	for key in _tokens.keys():
+		if _tokens[key]["target"] == target:
+			_drop_token(key, &"kill", now)
+
+
+## Reports whether [param member] sees its target now; a token unseen for `los_loss_s` is taken back.
+func token_sight(member: Object, seen: bool, now: float) -> void:
+	if member == null or not _tokens.has(member.get_instance_id()):
+		return
+
+	var held: Dictionary = _tokens[member.get_instance_id()]
+
+	if seen:
+		held["unseen_since"] = INF
+	elif is_inf(float(held["unseen_since"])):
+		held["unseen_since"] = now
+
+
+## Takes back tokens that timed out or lost sight for too long. Cheap to call often: once per clock reading.
+func sweep(now: float) -> void:
+	if now == _last_swept:
+		return
+
+	_last_swept = now
+
+	for key in _tokens.keys():
+		var held: Dictionary = _tokens[key]
+		var ref: WeakRef = _members.get(key)
+
+		if ref == null or ref.get_ref() == null:
+			_drop_token(key, &"left", now)
+		elif now >= float(held["until"]):
+			_drop_token(key, &"timeout", now)
+		elif not is_inf(float(held["unseen_since"])) and now - float(held["unseen_since"]) >= tokens.los_loss_s:
+			_drop_token(key, &"los", now)
+
+	for key in _waiting_since.keys():
+		if now - float(_waiting_since[key][2]) > 60.0 or not _members.has(key):
+			_waiting_since.erase(key)
+
+
+func _drop_token(key: int, reason: StringName, now: float) -> void:
+	var held: Dictionary = _tokens.get(key, {})
+
+	if held.is_empty():
+		return
+
+	_tokens.erase(key)
+	token_stats[String(reason)] = int(token_stats.get(String(reason), 0)) + 1
+
+	if reason != &"kill" and reason != &"left":
+		_cooldown_until[key] = now + tokens.retake_cooldown_s
+
+	var slot := StringName(ATTACK_PREFIX + String(held["target"]))
+	if _slots.has(slot):
+		(_slots[slot] as Array).erase(key)
+
+	DotLog.debug(CHANNEL, "attack token released", {"squad": String(squad_name), "reason": String(reason), "held": _tokens.size()})
+
+
+## True when no member that has waited longer on [param target] is still asking and could be served.
+func _is_first_waiter(key: int, target: StringName, now: float) -> bool:
+	var own: Array = _waiting_since.get(key, [])
+	var mine := float(own[1]) if not own.is_empty() and own[0] == target else now
+
+	for other in _waiting_since.keys():
+		if other == key:
+			continue
+
+		var wait: Array = _waiting_since[other]
+		var fresh: bool = float(wait[1]) < mine and wait[0] == target
+		# A waiter that stopped asking for a window no longer holds the queue.
+		var asking: bool = now - float(wait[2]) <= tokens.wait_window_s
+
+		if fresh and asking and float(_cooldown_until.get(other, -INF)) <= now and _members.has(other):
+			return false
+
+	return true
+
+
+func _seed_rng() -> void:
+	if _rng_seed != tokens.seed:
+		_rng_seed = tokens.seed
+		_rng.seed = tokens.seed
+
+
 func describe() -> Dictionary:
 	var slots := {}
 
@@ -271,13 +452,22 @@ func describe() -> Dictionary:
 		"members": size(),
 		"slots": slots,
 		"shared": shared_count,
+		"tokens": _tokens.size() if tokens.enabled else -1,
+		"token_stats": token_stats.duplicate() if tokens.enabled else {},
 	}
 
 
 func describe_lines() -> PackedStringArray:
 	var d := describe()
-	return PackedStringArray([
+	var out := PackedStringArray([
 		"squad %s: %d member(s), %d report(s) shared, slots %s" % [
 			d["squad"], d["members"], d["shared"], str(d["slots"])
 		]
 	])
+
+	if tokens.enabled:
+		out.append("tokens %d/%d held (cap %d per target), %s" % [
+			_tokens.size(), tokens.pool_size, tokens.per_target_cap, str(token_stats)
+		])
+
+	return out

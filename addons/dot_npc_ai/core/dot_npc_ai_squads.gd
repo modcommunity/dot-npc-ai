@@ -11,6 +11,9 @@ const META := &"dot_npc_ai_squads"
 
 var _squads: Dictionary = {}
 
+## Token settings every squad made from now on shares. Null leaves each squad its own (off) defaults.
+var tokens: DotNpcAiTokenConfig = null
+
 
 ## The squad called [param squad_name], made if it does not exist yet.
 func squad(squad_name: StringName) -> DotNpcAiSquad:
@@ -18,6 +21,10 @@ func squad(squad_name: StringName) -> DotNpcAiSquad:
 
 	if found == null:
 		found = DotNpcAiSquad.new(squad_name)
+
+		if tokens != null:
+			found.tokens = tokens
+
 		_squads[squad_name] = found
 
 	return found

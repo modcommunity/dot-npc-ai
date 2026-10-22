@@ -11,5 +11,7 @@ extends RefCounted
 #    from_dict, save, load_file, hiding_spots, cover_from, links_of), DotNpcAiNavAnnotator (a
 #    DotJob: settings, seeds, declare, cache_key, key_for, kept_polygons, bind_cvars, read_cvars,
 #    _keep_link and _hide_score to override, los_fn to assign), DotNpcAiNavDebug.
-const LEVEL := 2
+# 3: DotNpcAiTokenConfig, DotNpcAiSquad attack tokens (take_token, release_token, token_sight, sweep),
+#    DotNpcAiTactics.best_flank, DotNpcAiBrain.hold_off, line_clear and cruise_between_thinks, DotNpcAiScheduler.
+const LEVEL := 3
 const OLDEST := 1

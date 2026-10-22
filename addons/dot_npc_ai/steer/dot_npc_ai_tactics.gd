@@ -151,3 +151,31 @@ static func best_of(candidates: PackedVector3Array, scorer: Callable) -> int:
 			best = i
 
 	return best
+
+
+## The best place on a ring round [param center] for [param from] to flank from, or INF when there is none.
+##
+## Scored through [method best_of]: higher for being behind [param enemy_facing] (by [method angle_from_behind]),
+## lower for each of [param allies] already within the ally radius and for the walk there. Weights are the
+## token config's, so a game tunes flanking from a file.
+static func best_flank(
+	center: Vector3, enemy_facing: Vector3, from: Vector3, radius: float, allies: Array, cfg: DotNpcAiTokenConfig
+) -> Vector3:
+	var ring := PackedVector3Array()
+	var count := maxi(cfg.flank_candidates, 3)
+
+	for i in count:
+		var bearing := TAU * float(i) / float(count)
+		ring.append(center + Vector3(cos(bearing), 0.0, sin(bearing)) * radius)
+
+	var half_ring := maxf(PI * radius, 0.001)
+	var pick := best_of(ring, func(at: Vector3, _i: int) -> float:
+		var score := cfg.flank_angle_weight * (1.0 - angle_from_behind(center, enemy_facing, at) / PI)
+
+		for ally: Vector3 in allies:
+			if ally.distance_to(at) < cfg.flank_ally_radius:
+				score -= cfg.flank_spread_weight
+
+		return score - cfg.flank_travel_weight * from.distance_to(at) / half_ring)
+
+	return ring[pick] if pick >= 0 else Vector3.INF

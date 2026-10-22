@@ -19,13 +19,13 @@ const BRAIN := "res://fixtures/zombie_brain.gd"
 const SEARCHER := "res://fixtures/searcher_brain.gd"
 const GUNNER := "res://fixtures/gunner_brain.gd"
 
-const CHECKS := 371
+const CHECKS := 396
 
 ## Sections entered against sections that ran to their last line, and against this. A
 ## runtime error inside a section aborts that function and nothing says so; a section that
 ## bailed out early after a failed guard is counted as not finished on purpose. The CHECKS
 ## total is the other half — see docs/testing.md.
-const SECTIONS := 36
+const SECTIONS := 37
 
 var _passed := 0
 var _failed := 0
@@ -70,6 +70,7 @@ func _run() -> void:
 	_test_brain_on_a_real_npc()
 	_test_brain_under_a_scheduler()
 	_test_throttled_cruise()
+	_test_attack_tokens()
 	_test_crowd_separation()
 	_test_server_skill()
 	_test_brain_under_a_skill()
@@ -1527,6 +1528,141 @@ func _test_throttled_cruise() -> void:
 
 	stub.free()
 	DotRegistry.unregister(DotNpcAiScheduler.SERVICE)
+	_done()
+
+
+class TokenMember extends RefCounted:
+	pass
+
+
+func _token_squad(pool: int, cap: int, seed_value: int = 1) -> DotNpcAiSquad:
+	var squad := DotNpcAiSquad.new(&"t")
+	squad.tokens.enabled = true
+	squad.tokens.pool_size = pool
+	squad.tokens.per_target_cap = cap
+	squad.tokens.timeout_s = 2.0
+	squad.tokens.retake_cooldown_s = 1.0
+	squad.tokens.los_loss_s = 0.5
+	squad.tokens.seed = seed_value
+	return squad
+
+
+func _token_members(squad: DotNpcAiSquad, n: int) -> Array:
+	var out: Array = []
+	for i in n:
+		var m := TokenMember.new()
+		squad.join(m)
+		out.append(m)
+	return out
+
+
+## Everyone keeps asking every 0.1 s for [param seconds]; returns the grant log and the worst totals.
+func _token_sim(seed_value: int, seconds: float) -> Dictionary:
+	var squad := _token_squad(3, 2, seed_value)
+	var members := _token_members(squad, 8)
+	var log := PackedStringArray()
+	var grants := {}
+	var worst_total := 0
+	var worst_target := 0
+	var longest_wait := 0.0
+	var waiting_since := {}
+	var t := 0.0
+	for step in int(seconds / 0.1):
+		t += 0.1
+		for i in members.size():
+			var m: Object = members[i]
+			var target := &"a" if i < 5 else &"b"
+			squad.token_sight(m, true, t)
+			var had := squad.has_token(m)
+			if squad.take_token(m, target, t):
+				if not had:
+					grants[i] = int(grants.get(i, 0)) + 1
+					log.append("%.1f:%d" % [t, i])
+					longest_wait = maxf(longest_wait, t - float(waiting_since.get(i, t)))
+				waiting_since[i] = INF
+			elif not waiting_since.has(i) or is_inf(float(waiting_since[i])):
+				waiting_since[i] = t
+		worst_total = maxi(worst_total, squad.token_count())
+		worst_target = maxi(worst_target, maxi(squad.token_count(&"a"), squad.token_count(&"b")))
+	return {"log": log, "grants": grants, "total": worst_total, "target": worst_target, "wait": longest_wait}
+
+
+func _test_attack_tokens() -> void:
+	_section("attack tokens")
+
+	var off := DotNpcAiSquad.new(&"off")
+	_check(not off.tokens.enabled and DotNpcAiTokenConfig.new().enabled == false, "tokens ship off")
+	_check(off.describe()["tokens"] == -1, "and describe() says so")
+	_check(DotNpcAiTokenConfig.new().validate().ok, "the default config validates")
+	var bad := DotNpcAiTokenConfig.new()
+	bad.per_target_cap = bad.pool_size + 1
+	_check(not bad.validate().ok, "a cap above the pool does not")
+
+	var squad := _token_squad(3, 2)
+	var m := _token_members(squad, 6)
+	var taken := 0
+	for i in 5:
+		if squad.take_token(m[i], &"a", 0.0):
+			taken += 1
+	_check(taken == 2, "five ask for one target, the per-target cap lets two", str(taken))
+	_check(squad.take_token(m[5], &"b", 0.0) and squad.token_count() == 3, "another target takes the last of the pool")
+	_check(not squad.take_token(m[2], &"b", 0.0), "then the pool is dry", str(squad.token_count()))
+	_check(squad.take_token(m[0], &"a", 0.1), "a holder asking again keeps its token")
+
+	squad.release_target_tokens(&"a", 0.2)
+	_check(squad.token_count(&"a") == 0 and squad.token_stats["kill"] == 2, "a kill frees every token on the target")
+	_check(squad.take_token(m[0], &"c", 0.2), "and a kill starts no cooldown")
+
+	squad.release_token(m[0], &"manual", 0.3)
+	_check(not squad.take_token(m[0], &"c", 0.5) and squad.take_token(m[0], &"c", 1.4),
+		"a given-up token cannot be re-taken until the cooldown has passed")
+
+	var timed := _token_squad(3, 2)
+	var tm := _token_members(timed, 3)
+	timed.take_token(tm[0], &"a", 0.0)
+	timed.sweep(1.0)
+	_check(timed.has_token(tm[0]), "a token is kept inside its timeout")
+	timed.sweep(2.1)
+	_check(not timed.has_token(tm[0]) and timed.token_stats["timeout"] == 1, "and taken back after it")
+
+	var sight := _token_squad(3, 2)
+	var sm := _token_members(sight, 2)
+	sight.take_token(sm[0], &"a", 0.0)
+	sight.token_sight(sm[0], false, 0.2)
+	sight.sweep(0.5)
+	_check(sight.has_token(sm[0]), "briefly out of sight keeps the token")
+	sight.token_sight(sm[0], true, 0.6)
+	sight.token_sight(sm[0], false, 0.7)
+	sight.sweep(1.1)
+	_check(sight.has_token(sm[0]), "and seeing again restarts the count")
+	sight.sweep(1.3)
+	_check(not sight.has_token(sm[0]) and sight.token_stats["los"] == 1, "lost sight for too long gives it up")
+
+	sight.take_token(sm[1], &"a", 5.0)
+	sight.leave(sm[1])
+	_check(sight.token_count() == 0 and sight.token_stats["left"] == 1, "leaving the squad gives it up")
+
+	var run1 := _token_sim(5, 120.0)
+	_check(run1["total"] <= 3 and run1["target"] <= 2, "over two minutes the pool and the cap are never exceeded",
+		"%d and %d" % [run1["total"], run1["target"]])
+	var starved := 0
+	for i in 8:
+		if int(run1["grants"].get(i, 0)) == 0:
+			starved += 1
+	_check(starved == 0, "every member gets a token sooner or later", str(run1["grants"]))
+	_check(run1["wait"] < 15.0, "and none waits long", "%.1f s" % run1["wait"])
+	var run2 := _token_sim(5, 120.0)
+	_check(run1["log"] == run2["log"] and run1["log"].size() > 20, "the same seed gives the same grants in the same order")
+	_check(run1["log"] != _token_sim(6, 120.0)["log"], "another seed gives another run")
+
+	_check(squad.describe_lines().size() == 2 and "tokens" in squad.describe_lines()[1], "describe_lines() reports the pool")
+
+	var cfg := DotNpcAiTokenConfig.new()
+	var behind := DotNpcAiTactics.best_flank(Vector3.ZERO, Vector3(1, 0, 0), Vector3(3, 0, 0), 4.0, [], cfg)
+	_check(DotNpcAiTactics.angle_from_behind(Vector3.ZERO, Vector3(1, 0, 0), behind) < 0.6,
+		"flanking picks a place behind the target", str(behind))
+	var crowded := DotNpcAiTactics.best_flank(Vector3.ZERO, Vector3(1, 0, 0), Vector3(3, 0, 0), 4.0, [behind], cfg)
+	_check(crowded.distance_to(behind) >= cfg.flank_ally_radius, "and not the one an ally already holds", str(crowded))
 	_done()
 
 

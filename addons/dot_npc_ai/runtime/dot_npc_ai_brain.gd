@@ -554,6 +554,10 @@ func _sense() -> void:
 	if has_target and holds_attack_slot():
 		c.set_flag(DotNpcAiConditions.HAS_ATTACK_SLOT)
 
+	if squad != null and squad.tokens.enabled:
+		squad.token_sight(self, c.has(DotNpcAiConditions.SEE_ENEMY), _world_now())
+		squad.sweep(_world_now())
+
 
 ## LIGHT_DAMAGE for any hurt since the last think; HEAVY_DAMAGE when the hurt inside the
 ## window adds up to [member heavy_damage_fraction] of its health.
@@ -830,7 +834,16 @@ func claim_role(role: StringName, capacity: int) -> bool:
 	if squad == null:
 		return true
 
-	return squad.claim(_role_slot(role, npc.target_id), self, capacity)
+	var slot := _role_slot(role, npc.target_id)
+
+	if role == ROLE_ATTACK and squad.tokens.enabled:
+		if not squad.holds(slot, self) and squad.holder_count(slot) >= capacity:
+			return false
+
+		if not squad.take_token(self, npc.target_id, _world_now()):
+			return false
+
+	return squad.claim(slot, self, capacity)
 
 
 func holds_role(role: StringName) -> bool:
@@ -851,6 +864,7 @@ func _role_slot(role: StringName, target: StringName) -> StringName:
 
 func _release_roles_on(target: StringName) -> void:
 	if squad != null and target != &"":
+		squad.release_token(self, &"kill", _world_now())
 		squad.release_suffixed(":" + String(target), self)
 
 
@@ -922,6 +936,54 @@ func surround(
 	if flat.length() < 0.6:
 		# There — but still apart. A waiter that halts on its spot is one that stays wherever
 		# the squad's last shove left it, which is how a ring becomes a heap.
+		var forward := npc.facing()
+		var right := Vector3(-forward.z, 0.0, forward.x)
+		var apart := DotNpcAiSteering.separate(here, neighbours(spacing), spacing, right)
+
+		if apart.length() > 0.05:
+			steer_toward(here + apart * 2.0, speed * 0.5, ctx.delta)
+		else:
+			halt()
+
+		face(center - here)
+		return DotNpcAiNode.Status.RUNNING
+
+	steer_with_spacing(point, speed, ctx.delta, spacing)
+	return DotNpcAiNode.Status.RUNNING
+
+
+## What a member without an attack token does: take the best flanking place on a ring round the target and hold it
+## at spacing. With tokens off it is [method surround]. RUNNING while there is a target; FAILURE without one.
+func hold_off(
+	ctx: DotNpcAiContext, speed: float, radius: float = 4.0, spacing: float = 1.6
+) -> DotNpcAiNode.Status:
+	if squad == null or not squad.tokens.enabled:
+		return surround(ctx, speed, radius, spacing)
+
+	if npc == null or not npc.is_alive() or not npc.has_target():
+		return DotNpcAiNode.Status.FAILURE
+
+	var center := target_position(Vector3.INF)
+
+	if center == Vector3.INF:
+		return DotNpcAiNode.Status.FAILURE
+
+	var here := npc.position()
+	var allies: Array = []
+
+	for member in _waiting_with():
+		if member != self:
+			allies.append((member as DotNpcAiBrain).npc.position())
+
+	var point := DotNpcAiTactics.best_flank(center, _enemy_facing(center), here, radius, allies, squad.tokens)
+
+	if point == Vector3.INF:
+		return DotNpcAiNode.Status.FAILURE
+
+	var flat := point - here
+	flat.y = 0.0
+
+	if flat.length() < 0.6:
 		var forward := npc.facing()
 		var right := Vector3(-forward.z, 0.0, forward.x)
 		var apart := DotNpcAiSteering.separate(here, neighbours(spacing), spacing, right)
