@@ -19,13 +19,13 @@ const BRAIN := "res://fixtures/zombie_brain.gd"
 const SEARCHER := "res://fixtures/searcher_brain.gd"
 const GUNNER := "res://fixtures/gunner_brain.gd"
 
-const CHECKS := 363
+const CHECKS := 371
 
 ## Sections entered against sections that ran to their last line, and against this. A
 ## runtime error inside a section aborts that function and nothing says so; a section that
 ## bailed out early after a failed guard is counted as not finished on purpose. The CHECKS
 ## total is the other half — see docs/testing.md.
-const SECTIONS := 35
+const SECTIONS := 36
 
 var _passed := 0
 var _failed := 0
@@ -69,6 +69,7 @@ func _run() -> void:
 	_test_character_aim()
 	_test_brain_on_a_real_npc()
 	_test_brain_under_a_scheduler()
+	_test_throttled_cruise()
 	_test_crowd_separation()
 	_test_server_skill()
 	_test_brain_under_a_skill()
@@ -1451,6 +1452,80 @@ func _test_brain_under_a_scheduler() -> void:
 	var far_npc_id := far.npc.instance_id
 	spawner.remove(far_npc_id)
 	_check(sched.tier_counts()[3] == 0, "a removed NPC's brain leaves the scheduler")
+	DotRegistry.unregister(DotNpcAiScheduler.SERVICE)
+	_done()
+
+
+class StubDirector extends Node:
+	var path_calls := 0
+
+	func path_toward(_npc: Object, _path: Object, to: Vector3) -> Variant:
+		path_calls += 1
+		return to
+
+
+func _walker(spawner: DotNpcSpawner, at: Vector3, goal: Vector3) -> DotNpcAiBrain:
+	var brain := spawner.spawn(&"zombie", at).brain as DotNpcAiBrain
+	brain.machine = null
+	brain.tree = DotNpcAiLeaf.Action.new(&"go", func(ctx: DotNpcAiContext) -> DotNpcAiNode.Status:
+		brain.steer_with_spacing(goal, 6.0, ctx.delta)
+		return DotNpcAiNode.Status.RUNNING)
+	return brain
+
+
+func _test_throttled_cruise() -> void:
+	_section("a throttled NPC keeps walking between thinks")
+
+	var sched := DotNpcAiScheduler.new()
+	var cfg := DotNpcAiSchedulerConfig.new()
+	cfg.enabled = true
+	sched.apply_config(cfg)
+	sched.auto_advance = false
+	sched.players_source = func() -> Array: return [Vector3.ZERO]
+	_world.add_child(sched)
+	sched.register_service()
+
+	var spawner := _spawner()
+	var near := _walker(spawner, Vector3(5, 0, 0), Vector3(25, 0, 0))
+	var far := _walker(spawner, Vector3(200, 0, 0), Vector3(220, 0, 0))
+	var still := _walker(spawner, Vector3(300, 0, 0), Vector3(320, 0, 0))
+	still.cruise_between_thinks = false
+	_check(sched.tier_of(far) == 3, "the walker is in tier 3")
+
+	var near_at := -1
+	var far_at := -1
+	for i in 600:
+		sched.advance(1.0 / 60.0)
+		spawner.tick(1.0 / 60.0)
+		if near_at < 0 and near.npc.position().x >= 24.5:
+			near_at = i
+		if far_at < 0 and far.npc.position().x >= 219.5:
+			far_at = i
+
+	_check(near_at > 0 and far_at > 0, "both reach a target 20 m away", "%d and %d" % [near_at, far_at])
+	_check(far_at - near_at <= 35, "the tier 3 one is at most one think late", "%d ticks late" % (far_at - near_at))
+	_check(far.npc.position().x < 221.0, "and does not run past it", str(far.npc.position().x))
+	_check(still.npc.position().x < 310.0, "with cruising off it only moves on its thinks", str(still.npc.position().x))
+	_check(sched.thinks_of(far) <= 21, "and thought only every 30th tick", str(sched.thinks_of(far)))
+
+	var stub := StubDirector.new()
+	far.director = stub
+	for i in 20:
+		far._path_goal(Vector3(240, 0, 0))
+	_check(stub.path_calls <= 2 and stub.path_calls > 0, "a calm tier reuses a path through the cache", str(stub.path_calls))
+	far.director = spawner
+
+	var calls := [0]
+	var probe := func() -> bool:
+		calls[0] += 1
+		return true
+	for i in 6:
+		near.line_clear(Vector3(9, 0, 0), probe)
+		far.line_clear(Vector3(9, 0, 0), probe)
+		sched.advance(1.0 / 60.0)
+	_check(calls[0] >= 1 and calls[0] <= 2, "a line test is cached for near and refused for tier 3", str(calls[0]))
+
+	stub.free()
 	DotRegistry.unregister(DotNpcAiScheduler.SERVICE)
 	_done()
 

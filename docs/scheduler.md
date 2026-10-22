@@ -25,12 +25,16 @@ A skipped brain returns early from `_npc_think`; the next think gets the time of
 
 ## Queries
 
-`cached_los(brain, key, compute)` reuses a line-of-sight answer for `los_cache_ticks`, and a tier above `los_max_tier` is told no without a test. `cached_path(key, compute)` reuses a path for `path_cache_ticks` and computes at most `max_paths_per_frame` new ones a frame; past that it returns the stale path or null. Nothing calls them yet: a game's brain opts in where it tests or paths.
+`cached_los(brain, key, compute)` reuses a line-of-sight answer for `los_cache_ticks`, and a tier above `los_max_tier` is told no without a test. `cached_path(key, compute)` reuses a path for `path_cache_ticks` and computes at most `max_paths_per_frame` new ones a frame; past that it returns the stale path or null. The brain uses them itself: `steer_with_spacing` and `steer_along_path` reuse a path at tiers 1 and up, and `line_clear(to, compute)` is the cached sight test a game's tree calls.
 
 ## Numbers
 
 `examples/npc_ai_scheduler_selftest.tscn`, 1000 fake brains of about 45 us each, players at two points: 46.5 ms a frame unscheduled, 13.7 ms tiered (3.4x), 6.7 ms tiered and capped at 6 ms (7x). Real brains cost differently; the suite prints its own figures every run.
 
+## Between thinks
+
+A throttled brain keeps walking the last point it steered at (`cruise_between_thinks`, on by default): movement only, no sensing, no tree. On reaching a waypoint it asks for the next through the path cache. The next real think clears it, so a tree that stops stops.
+
 ## Not done
 
-Tier 3 does not yet keep walking along its path between thinks. Wiring it into a game is that game's step: the zombie NPC brains first.
+Wiring it into a game is that game's step: the zombie NPC brains first.

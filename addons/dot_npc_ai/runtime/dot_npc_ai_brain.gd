@@ -145,6 +145,14 @@ var flank_lead: float = 0.8
 ## The level-of-detail scheduler this brain asks before thinking, found on [DotRegistry]. Null thinks every tick.
 var scheduler: DotNpcAiScheduler = null
 
+## Whether a skipped think keeps walking the last steering target (cheap movement, no sensing).
+var cruise_between_thinks: bool = true
+
+var _cruise_on: bool = false
+var _cruising: bool = false
+var _cruise_to: Vector3 = Vector3.ZERO
+var _cruise_speed: float = 0.0
+var _cruise_dest: Vector3 = Vector3.INF
 var _had_target: bool = false
 var _last_target: StringName = &""
 var _pending_damage: float = 0.0
@@ -237,10 +245,13 @@ func _npc_think(delta: float) -> void:
 
 	# The delta of every tick skipped since the last think, so cooldowns and timeouts keep real time.
 	if scheduler != null:
-		delta = scheduler.admit(self, delta)
-		if delta < 0.0:
+		var admitted := scheduler.admit(self, delta)
+		if admitted < 0.0:
+			_cruise(delta)
 			return
+		delta = admitted
 
+	_cruise_on = false
 	context.advance(delta)
 
 	_refresh_character()
@@ -257,6 +268,81 @@ func _npc_think(delta: float) -> void:
 
 	if scheduler != null:
 		scheduler.finish(self)
+
+
+## Records where this think steered, so a throttled tick can keep walking there.
+func steer_toward(to: Vector3, speed: float, delta: float) -> void:
+	if not _cruising:
+		_cruise_on = true
+		_cruise_to = to
+		_cruise_speed = speed
+		_cruise_dest = Vector3.INF
+
+	super(to, speed, delta)
+
+
+## [method DotNpcBrain.steer_along_path] that remembers the destination and asks the scheduler for the path.
+func steer_along_path(to: Vector3, speed: float, delta: float) -> void:
+	if npc == null or not npc.is_alive():
+		return
+
+	var goal := _path_goal(to)
+	steer_toward(goal if goal != Vector3.INF else to, speed, delta)
+	_cruise_dest = to
+
+
+## One throttled tick: keep walking the last target. A reached waypoint asks for the next one through the path cache.
+func _cruise(delta: float) -> void:
+	if not cruise_between_thinks or not _cruise_on or npc == null or not npc.is_alive():
+		return
+
+	var here := npc.position()
+	var flat := _cruise_to - here
+	flat.y = 0.0
+
+	if flat.length() < 1.0 and _cruise_dest != Vector3.INF:
+		var rest := _cruise_dest - here
+		rest.y = 0.0
+
+		if rest.length() > 1.5:
+			var next := _path_goal(_cruise_dest)
+
+			if next != Vector3.INF:
+				_cruise_to = next
+				flat = next - here
+				flat.y = 0.0
+
+	if flat.length() < 0.3:
+		return
+
+	_cruising = true
+	steer_toward(_cruise_to, _cruise_speed, delta)
+	_cruising = false
+
+
+## The next point on the way to [param to] from the director's path, or INF. Calmer tiers reuse it for a few ticks.
+func _path_goal(to: Vector3) -> Vector3:
+	if director == null or not director.has_method(&"path_toward"):
+		return Vector3.INF
+
+	var compute := func() -> Variant: return director.call(&"path_toward", npc, path, to)
+	var found: Variant
+
+	if scheduler != null and scheduler.config.enabled and scheduler.tier_of(self) > 0:
+		found = scheduler.cached_path([get_instance_id(), to.snapped(Vector3.ONE)], compute)
+	else:
+		found = compute.call()
+
+	return found if found is Vector3 else Vector3.INF
+
+
+## Whether the line to [param to] is clear, reusing the answer for a few ticks under a scheduler.
+## [param compute] is `func() -> bool`; a tier too calm for sight tests is told no.
+func line_clear(to: Vector3, compute: Callable) -> bool:
+	if scheduler == null:
+		return compute.call()
+
+	return scheduler.cached_los(self, [get_instance_id(), to.snapped(Vector3.ONE)], compute)
 
 
 ## Being hurt is information, and it arrives here whatever the subclass does with it.
@@ -1390,13 +1476,10 @@ func steer_with_spacing(
 	if npc == null or not npc.is_alive():
 		return
 
-	var goal := to
+	var goal := _path_goal(to)
 
-	if director != null and director.has_method(&"path_toward"):
-		var found: Variant = director.call(&"path_toward", npc, path, to)
-
-		if found is Vector3:
-			goal = found
+	if goal == Vector3.INF:
+		goal = to
 
 	var here := npc.position()
 	var wanted := DotNpcAiSteering.seek(here, goal)
@@ -1424,6 +1507,8 @@ func steer_with_spacing(
 		return
 
 	steer_toward(here + direction * 4.0, speed, delta)
+	_cruise_to = goal
+	_cruise_dest = to
 	_watch_progress(here, to)
 
 
