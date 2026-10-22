@@ -19,13 +19,13 @@ const BRAIN := "res://fixtures/zombie_brain.gd"
 const SEARCHER := "res://fixtures/searcher_brain.gd"
 const GUNNER := "res://fixtures/gunner_brain.gd"
 
-const CHECKS := 355
+const CHECKS := 363
 
 ## Sections entered against sections that ran to their last line, and against this. A
 ## runtime error inside a section aborts that function and nothing says so; a section that
 ## bailed out early after a failed guard is counted as not finished on purpose. The CHECKS
 ## total is the other half — see docs/testing.md.
-const SECTIONS := 34
+const SECTIONS := 35
 
 var _passed := 0
 var _failed := 0
@@ -68,6 +68,7 @@ func _run() -> void:
 	_test_character()
 	_test_character_aim()
 	_test_brain_on_a_real_npc()
+	_test_brain_under_a_scheduler()
 	_test_crowd_separation()
 	_test_server_skill()
 	_test_brain_under_a_skill()
@@ -1413,6 +1414,44 @@ func _test_brain_on_a_real_npc() -> void:
 		"DotNpcAiBrain._npc_unbound did not break the context <-> brain cycle")
 	_check(context_ref.get_ref() == null, "and their contexts")
 	_check(npc_ref.get_ref() == null, "and the NPCs they were driving")
+	_done()
+
+
+func _test_brain_under_a_scheduler() -> void:
+	_section("a brain under the level-of-detail scheduler")
+
+	var plain := _spawner().spawn(&"zombie", Vector3.ZERO).brain as DotNpcAiBrain
+	_check(plain.scheduler == null, "with no scheduler registered a brain thinks as it always did")
+
+	var sched := DotNpcAiScheduler.new()
+	var cfg := DotNpcAiSchedulerConfig.new()
+	cfg.enabled = true
+	sched.apply_config(cfg)
+	sched.auto_advance = false
+	sched.players_source = func() -> Array: return [Vector3.ZERO]
+	_world.add_child(sched)
+	sched.register_service()
+
+	var spawner := _spawner()
+	var near := spawner.spawn(&"zombie", Vector3(5, 0, 0)).brain as DotNpcAiBrain
+	var far := spawner.spawn(&"zombie", Vector3(200, 0, 0)).brain as DotNpcAiBrain
+	_check(near.scheduler == sched and far.scheduler == sched, "a brain finds the scheduler on the registry")
+	_check(sched.tier_of(near) == 0 and sched.tier_of(far) == 3, "and is tiered by its distance to the player",
+		"%d and %d" % [sched.tier_of(near), sched.tier_of(far)])
+
+	for i in 90:
+		sched.advance(1.0 / 60.0)
+		spawner.tick(1.0 / 60.0)
+	_check(sched.thinks_of(near) == 90, "the near brain thought every tick", str(sched.thinks_of(near)))
+	_check(sched.thinks_of(far) == 3, "the far one every 30th", str(sched.thinks_of(far)))
+	_check(near.context.now - far.context.now <= 30.0 / 60.0 + 0.05,
+		"and its clock is at most one sleep behind the near one's, not three ticks' worth", "%.2f against %.2f" % [far.context.now, near.context.now])
+	_check(far.describe()["lod_tier"] == 3, "describe() names the tier")
+
+	var far_npc_id := far.npc.instance_id
+	spawner.remove(far_npc_id)
+	_check(sched.tier_counts()[3] == 0, "a removed NPC's brain leaves the scheduler")
+	DotRegistry.unregister(DotNpcAiScheduler.SERVICE)
 	_done()
 
 

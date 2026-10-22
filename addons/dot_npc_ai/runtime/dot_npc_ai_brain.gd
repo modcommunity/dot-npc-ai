@@ -142,6 +142,9 @@ var report_interval: float = 0.5
 ## The NPC circles at walking pace; this is how far ahead of it the point it walks at is.
 var flank_lead: float = 0.8
 
+## The level-of-detail scheduler this brain asks before thinking, found on [DotRegistry]. Null thinks every tick.
+var scheduler: DotNpcAiScheduler = null
+
 var _had_target: bool = false
 var _last_target: StringName = &""
 var _pending_damage: float = 0.0
@@ -163,6 +166,7 @@ var _applied: DotNpcAiCharacter = null
 
 
 func _npc_ready() -> void:
+	scheduler = DotNpcAiScheduler.find() as DotNpcAiScheduler
 	blackboard = DotNpcAiBlackboard.new()
 	context = DotNpcAiContext.make(npc, self, blackboard)
 	memory = DotNpcAiMemory.new()
@@ -223,10 +227,19 @@ func _npc_ready() -> void:
 				"why": started.error.message,
 			})
 
+	if scheduler != null:
+		scheduler.register(self)
+
 
 func _npc_think(delta: float) -> void:
 	if context == null:
 		return
+
+	# The delta of every tick skipped since the last think, so cooldowns and timeouts keep real time.
+	if scheduler != null:
+		delta = scheduler.admit(self, delta)
+		if delta < 0.0:
+			return
 
 	context.advance(delta)
 
@@ -241,6 +254,9 @@ func _npc_think(delta: float) -> void:
 
 	if machine != null:
 		machine.tick(context)
+
+	if scheduler != null:
+		scheduler.finish(self)
 
 
 ## Being hurt is information, and it arrives here whatever the subclass does with it.
@@ -272,6 +288,10 @@ func _npc_died(_by: StringName) -> void:
 ## context: a cycle [method DotNpcBrain.unbind] exists to break. The tree and the
 ## machine go too, because a node that cached the context would be a second one.
 func _npc_unbound() -> void:
+	if scheduler != null and is_instance_valid(scheduler):
+		scheduler.unregister(self)
+	scheduler = null
+
 	if context != null:
 		context.brain = null
 		context.agent = null
@@ -1444,6 +1464,7 @@ func describe() -> Dictionary:
 	out["conditions"] = ", ".join(context.conditions.names()) if context != null else ""
 	out["remembers"] = memory.size() if memory != null else 0
 	out["squad"] = String(squad_name) if squad != null else "-"
+	out["lod_tier"] = scheduler.tier_of(self) if scheduler != null else 0
 
 	if character != null:
 		out["reaction"] = "%.2fs" % character.reaction_time
