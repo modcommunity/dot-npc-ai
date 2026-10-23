@@ -1052,7 +1052,7 @@ func surround(
 		positions = []
 
 		for member in group:
-			positions.append((member as DotNpcAiBrain).npc.position())
+			positions.append(member.npc.position())
 
 		facing = _enemy_facing(center)
 
@@ -1115,7 +1115,7 @@ func hold_off(
 
 	for member in _waiting_with():
 		if member != self:
-			allies.append((member as DotNpcAiBrain).npc.position())
+			allies.append(member.npc.position())
 
 	var point := DotNpcAiTactics.best_flank(center, _enemy_facing(center), here, radius, allies, squad.tokens)
 
@@ -1154,7 +1154,7 @@ func _waiting_with() -> Array:
 	out.clear()
 
 	for member in squad.members():
-		var other := member as DotNpcAiBrain
+		var other = member if is_instance_valid(member) else null
 
 		if other == null or other.npc == null or not other.npc.is_alive():
 			continue
@@ -1180,7 +1180,7 @@ func _enemy_facing(center: Vector3) -> Vector3:
 		var nearest := Vector3.INF
 
 		for member in squad.members():
-			var other := member as DotNpcAiBrain
+			var other = member if is_instance_valid(member) else null
 
 			if other == null or other == self or other.npc == null or not other.npc.is_alive():
 				continue
@@ -1188,7 +1188,7 @@ func _enemy_facing(center: Vector3) -> Vector3:
 			if not holding.has(other.get_instance_id()):
 				continue
 
-			var at := other.npc.position()
+			var at: Vector3 = other.npc.position()
 
 			if nearest == Vector3.INF or at.distance_squared_to(center) < nearest.distance_squared_to(center):
 				nearest = at
@@ -1384,19 +1384,19 @@ func fire_lane_clear(from: Vector3, to: Vector3, clearance: float = 0.8) -> bool
 	var along := lane / length
 
 	for member in squad.members():
-		var other := member as DotNpcAiBrain
+		var other = member if is_instance_valid(member) else null
 
 		if other == null or other == self or other.npc == null or not other.npc.is_alive():
 			continue
 
-		var offset := other.npc.position() - from
-		var t := offset.dot(along)
+		var offset: Vector3 = other.npc.position() - from
+		var t: float = offset.dot(along)
 
 		if t <= 0.0 or t >= length:
 			continue
 
-		var closest := from + along * t
-		var flat := other.npc.position() - closest
+		var closest: Vector3 = from + along * t
+		var flat: Vector3 = other.npc.position() - closest
 		flat.y = 0.0
 
 		if flat.length() < clearance:
