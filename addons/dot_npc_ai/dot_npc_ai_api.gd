@@ -14,5 +14,6 @@ extends RefCounted
 # 3: DotNpcAiTokenConfig, DotNpcAiSquad attack tokens (take_token, release_token, token_sight, sweep),
 #    DotNpcAiTactics.best_flank, DotNpcAiBrain.hold_off, line_clear and cruise_between_thinks, DotNpcAiScheduler.
 # 4: utility scoring: DotNpcAiCurve, DotNpcAiPersonality, DotNpcAiUtility, DotNpcAiUtilityConfig, DotNpcAiUtilityGate, DotNpcAiBrain.use_utility and utility_choose.
-const LEVEL := 4
+# 5: DotNpcAiCrowdGrid (a per-tick spatial hash: near, separation), DotNpcAiBrain.separation to override.
+const LEVEL := 5
 const OLDEST := 1

@@ -19,13 +19,13 @@ const BRAIN := "res://fixtures/zombie_brain.gd"
 const SEARCHER := "res://fixtures/searcher_brain.gd"
 const GUNNER := "res://fixtures/gunner_brain.gd"
 
-const CHECKS := 420
+const CHECKS := 425
 
 ## Sections entered against sections that ran to their last line, and against this. A
 ## runtime error inside a section aborts that function and nothing says so; a section that
 ## bailed out early after a failed guard is counted as not finished on purpose. The CHECKS
 ## total is the other half — see docs/testing.md.
-const SECTIONS := 39
+const SECTIONS := 40
 
 var _passed := 0
 var _failed := 0
@@ -61,6 +61,7 @@ func _run() -> void:
 	_test_machine()
 	_test_machine_thrash()
 	_test_steering()
+	_test_crowd_grid()
 	_test_pursuit_and_avoidance()
 	_test_wander()
 	_test_more_decorators()
@@ -691,6 +692,58 @@ func _test_steering() -> void:
 	])
 	_check(absf(blended.length() - 1.0) < 0.001, "a blend is normalised",
 		"or an NPC runs faster when two urges happen to agree")
+	_done()
+
+
+func _test_crowd_grid() -> void:
+	_section("crowd grid")
+
+	var grid := DotNpcAiCrowdGrid.new(4.0)
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 11
+	var points: Array = []
+
+	for i in 200:
+		var p := Vector3(rng.randf_range(-20.0, 20.0), rng.randf_range(-0.5, 2.5), rng.randf_range(-20.0, 20.0))
+		points.append(p)
+		var _i := grid.add(1000 + i, p)
+
+	_check(grid.size() == 200 and grid.index_of(1007) == 7 and grid.index_of(5) == -1, "a grid indexes what it was given")
+
+	var found := grid.near(Vector3(1, 0, -2), 5.0, PackedInt32Array())
+	var expect := 0
+	for p: Vector3 in points:
+		if p.distance_to(Vector3(1, 0, -2)) <= 5.0:
+			expect += 1
+	var all_in := true
+	for i in found:
+		all_in = all_in and (points[i] as Vector3).distance_to(Vector3(1, 0, -2)) <= 5.0
+	_check(found.size() == expect and all_in, "near finds exactly what a walk over everybody finds")
+
+	var same := true
+	for k in 200:
+		var others: Array = []
+		var centre: Vector3 = points[k]
+		for j in 200:
+			if j != k and (points[j] as Vector3).distance_to(centre) <= 3.2:
+				others.append(points[j])
+		var from := centre + Vector3(0.1, 0.0, -0.05)
+		var want := DotNpcAiSteering.separate(from, others, 1.6, Vector3.RIGHT)
+		var got := grid.separation(k, from, 1.6, 3.2, Vector3.RIGHT)
+		same = same and got.is_equal_approx(want)
+	_check(same, "its separation is the steering one over the same neighbours",
+		"a brain's spacing must not change when a host switches it on")
+
+	var stack := DotNpcAiCrowdGrid.new(4.0)
+	var _a := stack.add(1, Vector3.ZERO)
+	var _b := stack.add(2, Vector3(0, -1.4, 0))
+	_check(stack.separation(0, Vector3.ZERO, 1.6, 3.2, Vector3.RIGHT).is_equal_approx(Vector3.RIGHT),
+		"and a stack is shoved along the tie-break")
+
+	grid.clear()
+	var _c := grid.add(42, Vector3(100, 0, 100))
+	_check(grid.size() == 1 and grid.index_of(1000) == -1 and grid.near(Vector3.ZERO, 10.0, PackedInt32Array()).is_empty(),
+		"a cleared grid forgets the last tick")
 	_done()
 
 

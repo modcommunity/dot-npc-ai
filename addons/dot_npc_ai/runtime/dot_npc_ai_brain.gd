@@ -704,6 +704,9 @@ func _sense_damage(c: DotNpcAiConditions) -> void:
 		_damage_log.append([now, _pending_damage])
 		_pending_damage = 0.0
 
+	if _damage_log.is_empty():
+		return
+
 	var total := 0.0
 	var kept: Array = []
 
@@ -1080,7 +1083,7 @@ func surround(
 		# the squad's last shove left it, which is how a ring becomes a heap.
 		var forward := npc.facing()
 		var right := Vector3(-forward.z, 0.0, forward.x)
-		var apart := DotNpcAiSteering.separate(here, neighbours(spacing), spacing, right)
+		var apart := separation(here, spacing, right)
 
 		if apart.length() > 0.05:
 			steer_toward(here + apart * 2.0, speed * 0.5, ctx.delta)
@@ -1128,7 +1131,7 @@ func hold_off(
 	if flat.length() < 0.6:
 		var forward := npc.facing()
 		var right := Vector3(-forward.z, 0.0, forward.x)
-		var apart := DotNpcAiSteering.separate(here, neighbours(spacing), spacing, right)
+		var apart := separation(here, spacing, right)
 
 		if apart.length() > 0.05:
 			steer_toward(here + apart * 2.0, speed * 0.5, ctx.delta)
@@ -1670,6 +1673,13 @@ func neighbours(radius: float) -> Array:
 	return out
 
 
+## The push away from the neighbours within [param spacing] of [param here]: what
+## [method steer_with_spacing] and [method surround] blend in. A host with its own crowd index
+## overrides it (see [DotNpcAiCrowdGrid]) to skip building [method neighbours]' array.
+func separation(here: Vector3, spacing: float, right: Vector3) -> Vector3:
+	return DotNpcAiSteering.separate(here, neighbours(spacing), spacing, right)
+
+
 ## Steers toward [param to] while keeping [param spacing] metres from the neighbours.
 ##
 ## The one combination almost every NPC wants and nobody writes correctly the first
@@ -1701,7 +1711,7 @@ func steer_with_spacing(
 	# is the same vector for a 3D body and is defined for both.
 	var forward := npc.facing()
 	var right := Vector3(-forward.z, 0.0, forward.x)
-	var apart := DotNpcAiSteering.separate(here, neighbours(spacing), spacing, right)
+	var apart := separation(here, spacing, right)
 
 	# Separation is weighted below seeking, deliberately. Equal weights give a crowd
 	# that spreads out and stops arriving: at a doorway the pushes cancel the seek and
