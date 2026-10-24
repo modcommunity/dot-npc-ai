@@ -4,8 +4,8 @@ extends RefCounted
 ## A crowd's positions in a flat spatial hash, rebuilt once a tick, so spacing and "who is near"
 ## cost a few cells rather than a walk over everybody or an array built per question.
 ##
-## Cells are linked lists in packed arrays (a head per cell, a next per entry): a rebuild
-## allocates nothing once the arrays have grown, and a query allocates nothing at all.
+## Cells are linked lists in packed arrays, in the order added, so a query visits entries in the
+## order a per-cell array would and its sums match DotNpcAiSteering.separate's bit for bit.
 
 ## The cell's side in metres; a query reaches every cell its radius touches.
 var cell: float = 2.0
@@ -14,6 +14,7 @@ var _pos := PackedVector3Array()
 var _ids := PackedInt64Array()
 var _next := PackedInt32Array()
 var _head: Dictionary = {}
+var _tail: Dictionary = {}
 var _index: Dictionary = {}
 var _count: int = 0
 
@@ -25,6 +26,7 @@ func _init(p_cell: float = 2.0) -> void:
 ## Empties the grid, keeping its arrays for the next fill.
 func clear() -> void:
 	_head.clear()
+	_tail.clear()
 	_index.clear()
 	_count = 0
 
@@ -42,8 +44,13 @@ func add(id: int, at: Vector3) -> int:
 	_pos[i] = at
 	_ids[i] = id
 	var key := _key(floori(at.x / cell), floori(at.z / cell))
-	_next[i] = int(_head.get(key, -1))
-	_head[key] = i
+	_next[i] = -1
+	var last: int = _tail.get(key, -1)
+	if last < 0:
+		_head[key] = i
+	else:
+		_next[last] = i
+	_tail[key] = i
 	_index[id] = i
 	return i
 
@@ -59,6 +66,12 @@ func has(id: int) -> bool:
 ## The index [param id] was added under this tick, or -1.
 func index_of(id: int) -> int:
 	return int(_index.get(id, -1))
+
+
+## Leaves entry [param index] out of every query until the next fill (it died mid-tick).
+func forget(index: int) -> void:
+	if index >= 0 and index < _count:
+		_pos[index] = Vector3.INF
 
 
 func position_of(index: int) -> Vector3:
@@ -111,14 +124,14 @@ func separation(self_index: int, from: Vector3, radius: float, query: float, tie
 			while i >= 0:
 				var other := _pos[i]
 				if i != self_index and other.distance_squared_to(centre) <= reach:
-					var dx := from.x - other.x
-					var dz := from.z - other.z
-					var distance := sqrt(dx * dx + dz * dz)
-					if distance <= radius and absf(from.y - other.y) <= tall:
+					var offset := from - other
+					var away := Vector3(offset.x, 0.0, offset.z)
+					var distance := away.length()
+					if distance <= radius and absf(offset.y) <= tall:
 						if distance < 0.05:
 							push += escape
 						else:
-							push += Vector3(dx, 0.0, dz) / distance * (1.0 - distance / radius)
+							push += away / distance * (1.0 - distance / radius)
 				i = _next[i]
 
 	return push.normalized() if push.length() > 0.001 else Vector3.ZERO

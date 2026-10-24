@@ -19,7 +19,7 @@ const BRAIN := "res://fixtures/zombie_brain.gd"
 const SEARCHER := "res://fixtures/searcher_brain.gd"
 const GUNNER := "res://fixtures/gunner_brain.gd"
 
-const CHECKS := 425
+const CHECKS := 426
 
 ## Sections entered against sections that ran to their last line, and against this. A
 ## runtime error inside a section aborts that function and nothing says so; a section that
@@ -724,15 +724,18 @@ func _test_crowd_grid() -> void:
 	for k in 200:
 		var others: Array = []
 		var centre: Vector3 = points[k]
-		for j in 200:
-			if j != k and (points[j] as Vector3).distance_to(centre) <= 3.2:
+		for j in grid.near(centre, 3.2, PackedInt32Array()):
+			if j != k:
 				others.append(points[j])
 		var from := centre + Vector3(0.1, 0.0, -0.05)
 		var want := DotNpcAiSteering.separate(from, others, 1.6, Vector3.RIGHT)
 		var got := grid.separation(k, from, 1.6, 3.2, Vector3.RIGHT)
-		same = same and got.is_equal_approx(want)
-	_check(same, "its separation is the steering one over the same neighbours",
-		"a brain's spacing must not change when a host switches it on")
+		same = same and got == want
+	_check(same, "its separation is the steering one over near's neighbours, bit for bit",
+		"a seeded crowd must not drift when a host switches it on")
+
+	grid.forget(grid.index_of(1007))
+	_check(not grid.near(points[7], 0.5, PackedInt32Array()).has(7), "a forgotten entry is in no query")
 
 	var stack := DotNpcAiCrowdGrid.new(4.0)
 	var _a := stack.add(1, Vector3.ZERO)
