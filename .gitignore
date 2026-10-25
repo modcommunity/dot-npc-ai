@@ -7,6 +7,7 @@
 #   ln -s ../../dot-npc/addons/dot_npc addons/dot_npc
 # Consumers copy all three addons into their own project.
 /addons/dot_core
+/addons/dot_profile
 /addons/dot_npc
 
 # Exports
