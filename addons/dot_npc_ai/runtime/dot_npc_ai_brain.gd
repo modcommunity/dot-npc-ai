@@ -174,6 +174,7 @@ var _damage_log: Array = []
 var _last_heard_id: int = 0
 var _last_report: float = -INF
 var _informed_pending: bool = false
+var _report_seq: int = 0
 var _danger_at: Vector3 = Vector3.ZERO
 var _danger_extent: float = 0.0
 var _danger_until: float = -INF
@@ -239,6 +240,7 @@ func _npc_ready() -> void:
 		if squads != null:
 			squad = squads.squad(squad_name)
 			squad.join(self)
+			_report_seq = squad.report_seq()
 
 	if machine != null and initial_state != &"":
 		var started := machine.go_to(context, initial_state)
@@ -676,6 +678,9 @@ func _sense() -> void:
 		c.set_flag(DotNpcAiConditions.LOW_HEALTH)
 
 	_listen(c)
+
+	if squad != null and squad.pull_reports:
+		_report_seq = squad.pull(self, _report_seq)
 
 	if _informed_pending:
 		c.set_flag(DotNpcAiConditions.SQUAD_INFORMED)

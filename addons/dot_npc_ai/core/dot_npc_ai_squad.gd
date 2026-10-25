@@ -45,6 +45,24 @@ var _memo_at: float = -INF
 ## How many reports were passed on. For a console command and a suite.
 var shared_count: int = 0
 
+## Members read the squad's reports when they think ([method pull]) instead of each report
+## calling every member. Same memory at each member's think, without a call per member per report.
+var pull_reports: bool = false
+
+## The pull log: one row per report, oldest first; row i has sequence number _log_base + i.
+var _log_enemy: Array = []
+var _log_pos := PackedVector3Array()
+var _log_vel := PackedVector3Array()
+var _log_at := PackedFloat64Array()
+var _log_from := PackedInt64Array()
+var _log_base: int = 0
+
+## enemy -> sequence number of its newest report; only that row is delivered.
+var _latest_seq: Dictionary = {}
+
+## Rows kept once the log is trimmed. A member that slept past them reads from the oldest kept.
+const LOG_KEEP := 256
+
 ## Attack tokens: a pool with a per-target cap on top of the plain slots. Off until `tokens.enabled`.
 var tokens: DotNpcAiTokenConfig = DotNpcAiTokenConfig.new()
 
@@ -165,10 +183,25 @@ func index_of(member: Object) -> int:
 ##
 ## Every other member is called with
 ## `_squad_report(enemy, position, velocity, seen_at)` if it has that method.
-## Returns how many accepted it as news.
+## Returns how many accepted it as news; 0 under [member pull_reports], where it is logged.
 func report(
 	from: Object, enemy: StringName, position: Vector3, velocity: Vector3, seen_at: float
 ) -> int:
+	shared_count += 1
+
+	if pull_reports:
+		_log_enemy.append(enemy)
+		_log_pos.append(position)
+		_log_vel.append(velocity)
+		_log_at.append(seen_at)
+		_log_from.append(from.get_instance_id() if from != null else 0)
+		_latest_seq[enemy] = _log_base + _log_enemy.size() - 1
+
+		if _log_enemy.size() >= LOG_KEEP * 2:
+			_trim_log()
+
+		return 0
+
 	var told := 0
 	var dead: Array = []
 
@@ -191,8 +224,48 @@ func report(
 			told += 1
 
 	_drop(dead)
-	shared_count += 1
 	return told
+
+
+## The sequence number the next report will get. A member starts reading here.
+func report_seq() -> int:
+	return _log_base + _log_enemy.size()
+
+
+## Delivers to [param member] every newest-per-enemy report from [param since] on that it did
+## not make, through `_squad_report`. Returns the sequence number to pass next time.
+func pull(member: Object, since: int) -> int:
+	var end := _log_base + _log_enemy.size()
+
+	if member == null or since >= end:
+		return end
+
+	var own := member.get_instance_id()
+
+	for seq in range(maxi(since, _log_base), end):
+		var i := seq - _log_base
+		var enemy: StringName = _log_enemy[i]
+
+		if _log_from[i] == own or int(_latest_seq.get(enemy, -1)) != seq:
+			continue
+
+		member.call(&"_squad_report", enemy, _log_pos[i], _log_vel[i], _log_at[i])
+
+	return end
+
+
+func _trim_log() -> void:
+	var cut := _log_enemy.size() - LOG_KEEP
+	_log_enemy = _log_enemy.slice(cut)
+	_log_pos = _log_pos.slice(cut)
+	_log_vel = _log_vel.slice(cut)
+	_log_at = _log_at.slice(cut)
+	_log_from = _log_from.slice(cut)
+	_log_base += cut
+
+	for enemy in _latest_seq.keys():
+		if int(_latest_seq[enemy]) < _log_base:
+			_latest_seq.erase(enemy)
 
 
 # --- Slots --------------------------------------------------------------------

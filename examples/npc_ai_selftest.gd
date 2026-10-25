@@ -19,7 +19,7 @@ const BRAIN := "res://fixtures/zombie_brain.gd"
 const SEARCHER := "res://fixtures/searcher_brain.gd"
 const GUNNER := "res://fixtures/gunner_brain.gd"
 
-const CHECKS := 427
+const CHECKS := 431
 
 ## Sections entered against sections that ran to their last line, and against this. A
 ## runtime error inside a section aborts that function and nothing says so; a section that
@@ -2551,6 +2551,28 @@ func _test_squad() -> void:
 	var reported := squad.report(b, &"p", Vector3(1, 2, 3), Vector3.ZERO, 0.0)
 	_check(reported == 1 and c.reports.size() == 1 and b.reports.is_empty(),
 		"a report reaches every other member and not the one who made it")
+
+	# Pull: reports are logged, and a member reads the newest per enemy when it thinks.
+	var pulled := DotNpcAiSquad.new(&"pull")
+	pulled.pull_reports = true
+	var p1 := FakeMember.new()
+	var p2 := FakeMember.new()
+	pulled.join(p1)
+	pulled.join(p2)
+	var seq := pulled.report_seq()
+	pulled.report(p1, &"p", Vector3(1, 0, 0), Vector3.ZERO, 1.0)
+	pulled.report(p1, &"p", Vector3(2, 0, 0), Vector3.ZERO, 2.0)
+	pulled.report(p2, &"q", Vector3(3, 0, 0), Vector3.ZERO, 2.0)
+	_check(p2.reports.is_empty(), "a pulled report calls nobody when it is made")
+	var next := pulled.pull(p2, seq)
+	_check(p2.reports.size() == 1 and p2.reports[0][1] == Vector3(2, 0, 0),
+		"a pull delivers only the newest report per enemy, never the member's own", str(p2.reports))
+	_check(pulled.pull(p2, next) == next and p2.reports.size() == 1, "and nothing twice")
+	for i in DotNpcAiSquad.LOG_KEEP * 3:
+		pulled.report(p1, StringName("e%d" % (i % 5)), Vector3(i, 0, 0), Vector3.ZERO, 3.0 + i)
+	p2.reports.clear()
+	pulled.pull(p2, 0)
+	_check(p2.reports.size() == 5, "a trimmed log still holds the newest of each enemy", str(p2.reports.size()))
 
 	# A member freed without leaving — which is how a world ends — must not keep its slot.
 	var squad2 := DotNpcAiSquad.new(&"beta")

@@ -14,6 +14,13 @@ var _squads: Dictionary = {}
 ## Token settings every squad made from now on shares. Null leaves each squad its own (off) defaults.
 var tokens: DotNpcAiTokenConfig = null
 
+## [member DotNpcAiSquad.pull_reports] for every squad, made now or later.
+var pull_reports: bool = false:
+	set(value):
+		pull_reports = value
+		for found in _squads.values():
+			(found as DotNpcAiSquad).pull_reports = value
+
 
 ## The squad called [param squad_name], made if it does not exist yet.
 func squad(squad_name: StringName) -> DotNpcAiSquad:
@@ -24,6 +31,8 @@ func squad(squad_name: StringName) -> DotNpcAiSquad:
 
 		if tokens != null:
 			found.tokens = tokens
+
+		found.pull_reports = pull_reports
 
 		_squads[squad_name] = found
 
