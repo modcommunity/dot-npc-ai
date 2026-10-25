@@ -113,8 +113,22 @@ func emit(
 func audible(at: Vector3, now: float, hearing: float = 1.0, after_id: int = 0) -> Array[Sound]:
 	var out: Array[Sound] = []
 
-	for sound in _sounds:
-		if sound.id <= after_id or sound.expires_at < now:
+	# Ids rise along the list (appended, dropped from the front), so start past after_id.
+	var lo := 0
+	var hi := _sounds.size()
+
+	while lo < hi:
+		var mid := (lo + hi) >> 1
+
+		if _sounds[mid].id <= after_id:
+			lo = mid + 1
+		else:
+			hi = mid
+
+	for i in range(lo, _sounds.size()):
+		var sound := _sounds[i]
+
+		if sound.expires_at < now:
 			continue
 
 		var reach := sound.radius * maxf(hearing, 0.0)
@@ -132,6 +146,16 @@ func last_id() -> int:
 
 
 func _prune(now: float) -> void:
+	var stale := false
+
+	for sound in _sounds:
+		if sound.expires_at < now:
+			stale = true
+			break
+
+	if not stale:
+		return
+
 	var keep: Array[Sound] = []
 
 	for sound in _sounds:

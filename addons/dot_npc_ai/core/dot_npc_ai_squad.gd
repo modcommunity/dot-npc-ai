@@ -30,6 +30,10 @@ var squad_name: StringName = &""
 ## instance id -> WeakRef to the member.
 var _members: Dictionary = {}
 
+## The member ids sorted, rebuilt only when membership changes: members() is asked per think.
+var _sorted_keys: Array = []
+var _keys_dirty := false
+
 ## Slot name -> Array of instance ids holding it, oldest first.
 var _slots: Dictionary = {}
 
@@ -71,7 +75,12 @@ func join(member: Object) -> void:
 	if member == null:
 		return
 
-	_members[member.get_instance_id()] = weakref(member)
+	var key := member.get_instance_id()
+
+	if not _members.has(key):
+		_keys_dirty = true
+
+	_members[key] = weakref(member)
 
 
 ## Leaves, letting go of every slot held. Called on death and on unbind.
@@ -80,7 +89,10 @@ func leave(member: Object) -> void:
 		return
 
 	var key := member.get_instance_id()
-	_members.erase(key)
+
+	if _members.erase(key):
+		_keys_dirty = true
+
 	_cooldown_until.erase(key)
 	release_all(key)
 
@@ -92,20 +104,35 @@ func has_member(member: Object) -> bool:
 ## The members still alive, in a fixed order (by instance id) so an index is stable.
 func members() -> Array[Object]:
 	var out: Array[Object] = []
-	var keys := _members.keys()
-	keys.sort()
+	var dead: Array = []
 
-	for key in keys:
+	for key in _keys():
 		var found: Object = (_members[key] as WeakRef).get_ref()
 
 		if found == null:
-			_members.erase(key)
-			release_all(key)
+			dead.append(key)
 			continue
 
 		out.append(found)
 
+	_drop(dead)
 	return out
+
+
+func _keys() -> Array:
+	if _keys_dirty:
+		_sorted_keys = _members.keys()
+		_sorted_keys.sort()
+		_keys_dirty = false
+
+	return _sorted_keys
+
+
+func _drop(dead: Array) -> void:
+	for key in dead:
+		_members.erase(key)
+		_keys_dirty = true
+		release_all(key)
 
 
 func size() -> int:
@@ -143,14 +170,27 @@ func report(
 	from: Object, enemy: StringName, position: Vector3, velocity: Vector3, seen_at: float
 ) -> int:
 	var told := 0
+	var dead: Array = []
 
-	for member in members():
+	for key in _keys():
+		var ref: WeakRef = _members.get(key)
+
+		if ref == null:
+			continue
+
+		var member: Object = ref.get_ref()
+
+		if member == null:
+			dead.append(key)
+			continue
+
 		if member == from or not member.has_method(&"_squad_report"):
 			continue
 
 		if bool(member.call(&"_squad_report", enemy, position, velocity, seen_at)):
 			told += 1
 
+	_drop(dead)
 	shared_count += 1
 	return told
 
