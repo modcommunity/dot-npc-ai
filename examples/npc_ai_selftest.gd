@@ -19,7 +19,7 @@ const BRAIN := "res://fixtures/zombie_brain.gd"
 const SEARCHER := "res://fixtures/searcher_brain.gd"
 const GUNNER := "res://fixtures/gunner_brain.gd"
 
-const CHECKS := 426
+const CHECKS := 427
 
 ## Sections entered against sections that ran to their last line, and against this. A
 ## runtime error inside a section aborts that function and nothing says so; a section that
@@ -1427,6 +1427,12 @@ func _test_brain_on_a_real_npc() -> void:
 	brain._progress_since -= brain.stuck_seconds + 0.1
 	brain._watch_progress(Vector3(0.1, 0, 0), Vector3(10, 0, 0))
 	_check(brain.path.rough_until > spawner.now(), "an NPC making no headway is given the graph's own corners",
+		"rough until %.2f, now %.2f" % [brain.path.rough_until, spawner.now()])
+	brain.path.rough_until = -INF
+	brain._watch_progress(Vector3.ZERO, Vector3(10, 0, 0))
+	brain._progress_since -= brain.stuck_seconds + 0.1
+	brain._watch_progress(Vector3(0.1, 1.4, 0), Vector3(10, 0, 0))
+	_check(brain.path.rough_until > spawner.now(), "and so is one hopping on the spot: height is not headway",
 		"rough until %.2f, now %.2f" % [brain.path.rough_until, spawner.now()])
 	brain.path.rough_until = -INF
 
@@ -2988,8 +2994,8 @@ func _test_ranged_and_roles() -> void:
 	_check(ba.claim_role(DotNpcAiBrain.ROLE_SUPPRESS, 1) != bb.claim_role(DotNpcAiBrain.ROLE_SUPPRESS, 1),
 		"one role of one place goes to one of two")
 
-	var holder := ba if ba.holds_role(DotNpcAiBrain.ROLE_SUPPRESS) else bb
-	var other := bb if holder == ba else ba
+	var holder: DotNpcAiBrain = ba if ba.holds_role(DotNpcAiBrain.ROLE_SUPPRESS) else bb
+	var other: DotNpcAiBrain = bb if holder == ba else ba
 	spawner.set_candidates([DotNpcSenses.Candidate.new(&"q", Vector3(0, 0, 5), &"player")])
 	for i in 200:
 		spawner.tick(1.0 / 60.0)

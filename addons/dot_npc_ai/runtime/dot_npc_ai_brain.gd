@@ -1764,7 +1764,8 @@ var _progress_since: float = 0.0
 func _watch_progress(here: Vector3, goal: Vector3) -> void:
 	var now := _world_now()
 
-	if _progress_at == Vector3.INF or here.distance_to(_progress_at) > 0.5 or here.distance_to(goal) < 2.0:
+	# Measured flat: a body hopping on the spot against what stops it is not making headway.
+	if _progress_at == Vector3.INF or _flat_length(here - _progress_at) > 0.5 or _flat_length(goal - here) < 2.0:
 		_progress_at = here
 		_progress_since = now
 		return
@@ -1773,6 +1774,10 @@ func _watch_progress(here: Vector3, goal: Vector3) -> void:
 		path.call(&"go_rough", now, 4.0)
 		_progress_at = here
 		_progress_since = now
+
+
+static func _flat_length(v: Vector3) -> float:
+	return Vector2(v.x, v.z).length()
 
 
 func describe() -> Dictionary:
