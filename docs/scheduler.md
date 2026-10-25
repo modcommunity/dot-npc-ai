@@ -37,4 +37,6 @@ A throttled brain keeps walking the last point it steered at (`cruise_between_th
 
 ## Not done
 
-Wiring it into a game is that game's step: the zombie NPC brains first.
+The scheduler is wired by dot-game, not by each game: `DotGameModule.attach_npc_lod(spawner)` builds it behind the `npc_lod*` cvars (default off, listed in the workbench as "NPC level of detail"). Zombie Zone attaches it; the other NPC games call the same one line.
+
+The other four NPC games have not attached it yet.
