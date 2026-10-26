@@ -89,10 +89,19 @@ func near(point: Vector3, radius: float, out: PackedInt32Array) -> PackedInt32Ar
 	var x1 := floori((point.x + radius) / cell)
 	var z0 := floori((point.z - radius) / cell)
 	var z1 := floori((point.z + radius) / cell)
+	var x0 := floori((point.x - radius) / cell)
 
-	for cx in range(floori((point.x - radius) / cell), x1 + 1):
+	# A wide query (a stand-in's 32 m sight is a thousand cells) costs more in cell lookups than
+	# a walk over every entry, so it takes the walk, in the order added.
+	if (x1 - x0 + 1) * (z1 - z0 + 1) > _count:
+		for i in _count:
+			if _pos[i].distance_squared_to(point) <= reach:
+				out.append(i)
+		return out
+
+	for cx in range(x0, x1 + 1):
 		for cz in range(z0, z1 + 1):
-			var i := int(_head.get(_key(cx, cz), -1))
+			var i := int(_head.get((cx << 32) ^ (cz & 0xFFFFFFFF), -1))
 			while i >= 0:
 				if _pos[i].distance_squared_to(point) <= reach:
 					out.append(i)
