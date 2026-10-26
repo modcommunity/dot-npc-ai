@@ -382,13 +382,30 @@ func holder_count(slot: StringName) -> int:
 	return _live_holders(slot).size()
 
 
-## The holders of [param slot] whose members still exist.
+## The holders of [param slot] whose members still exist. The stored list itself while every
+## holder is live (callers only read it, or append through [method claim]); a pruned list otherwise.
 ##
 ## Checked on every read rather than trusted: a member freed without leaving — a node
 ## freed by its world, which is how worlds end — would otherwise hold its slot for ever,
 ## and a squad whose two attack slots belong to the dead never attacks again.
 func _live_holders(slot: StringName) -> Array:
-	var holders: Array = _slots.get(slot, [])
+	var holders: Variant = _slots.get(slot)
+
+	if holders == null:
+		return []
+
+	var dead := false
+
+	for key in holders:
+		var ref: WeakRef = _members.get(key)
+
+		if ref == null or ref.get_ref() == null:
+			dead = true
+			break
+
+	if not dead:
+		return holders
+
 	var live: Array = []
 
 	for key in holders:

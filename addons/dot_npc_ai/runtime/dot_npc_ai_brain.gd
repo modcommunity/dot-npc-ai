@@ -736,6 +736,12 @@ func _listen(c: DotNpcAiConditions) -> void:
 		if sounds == null:
 			return
 
+	# Nothing said since it last listened: `audible` would return nothing.
+	if sounds.last_id() == _last_heard_id:
+		if in_danger():
+			c.set_flag(DotNpcAiConditions.HEAR_DANGER)
+		return
+
 	var world_now := _world_now()
 	var hearing := character.alertness if character != null else 1.0
 	var here := npc.position()
@@ -943,6 +949,10 @@ func look_round_time() -> float:
 ## [b]The question every attack branch should ask first.[/b] With no squad it is always
 ## yes. [param capacity] defaults to [member attack_capacity], which a catalogue sets with
 ## `"attackers"`. The slot is kept until the target changes, is lost, or this NPC dies.
+var _attack_slot_target: StringName = &""
+var _attack_slot_name: StringName = &""
+
+
 func claim_attack_slot(capacity: int = -1) -> bool:
 	return claim_role(ROLE_ATTACK, capacity if capacity >= 0 else attack_capacity)
 
@@ -1009,7 +1019,15 @@ func release_role(role: StringName) -> void:
 
 
 func _role_slot(role: StringName, target: StringName) -> StringName:
-	return StringName(String(role) + ":" + String(target))
+	if role != ROLE_ATTACK:
+		return StringName(String(role) + ":" + String(target))
+
+	# The attack slot is asked for several times a think; rebuilding its name was an allocation each time.
+	if target != _attack_slot_target or _attack_slot_name == &"":
+		_attack_slot_target = target
+		_attack_slot_name = StringName(String(role) + ":" + String(target))
+
+	return _attack_slot_name
 
 
 func _release_roles_on(target: StringName) -> void:
@@ -1721,7 +1739,10 @@ func steer_with_spacing(
 	# Separation is weighted below seeking, deliberately. Equal weights give a crowd
 	# that spreads out and stops arriving: at a doorway the pushes cancel the seek and
 	# the horde mills about outside, which reads as the pathfinder being broken.
-	var direction := DotNpcAiSteering.blend([[wanted, 1.0], [apart, 0.6]])
+	# `DotNpcAiSteering.blend([[wanted, 1.0], [apart, 0.6]])` without its nested arrays.
+	var direction := wanted * 1.0 + apart * 0.6
+	direction.y = 0.0
+	direction = direction.normalized() if direction.length() > 0.001 else Vector3.ZERO
 
 	if direction.length() < 0.001:
 		return
