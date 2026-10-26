@@ -2,17 +2,12 @@
 # Baselines only shrink: scripts/<gate> --update lowers or drops entries and refuses to add.
 addons/dot_npc_ai/annotate/dot_npc_ai_nav_annotator.gd	1202
 addons/dot_npc_ai/annotate/dot_npc_ai_nav_annotator.gd::_step_keep	126
-addons/dot_npc_ai/runtime/dot_npc_ai_brain.gd	1473
-examples/npc_ai_selftest.gd	2813
+addons/dot_npc_ai/runtime/dot_npc_ai_brain.gd	1421
+examples/npc_ai_selftest.gd	2574
 examples/npc_ai_selftest.gd::_test_brain_perception	130
 examples/npc_ai_selftest.gd::_test_brain_under_a_skill	166
-examples/npc_ai_selftest.gd::_test_character	99
-examples/npc_ai_selftest.gd::_test_character_aim	131
 examples/npc_ai_selftest.gd::_test_crowd_separation	84
-examples/npc_ai_selftest.gd::_test_more_decorators	115
 examples/npc_ai_selftest.gd::_test_nav_annotations	158
-examples/npc_ai_selftest.gd::_test_pursuit_and_avoidance	81
-examples/npc_ai_selftest.gd::_test_random_selector	110
 examples/npc_ai_selftest.gd::_test_ranged_and_roles	113
 examples/npc_ai_selftest.gd::_test_server_skill	137
 examples/npc_ai_selftest.gd::_test_squad_on_real_npcs	121

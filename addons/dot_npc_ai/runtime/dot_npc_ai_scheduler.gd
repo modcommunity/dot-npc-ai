@@ -1,18 +1,9 @@
 class_name DotNpcAiScheduler
 extends Node
 
-## Level-of-detail time-slicer for NPC brains: who thinks this frame, and for how long.
-##
-## Opt-in. Place one, set [member config], register it with [method register_service]; a brain that finds it
-## registers itself and asks [method admit] before each think. While [member DotNpcAiSchedulerConfig.enabled]
-## is false (the default) [method admit] hands every brain its own delta and nothing changes.
-##
-## A brain's tier comes from its distance to the nearest player, whether any player can see it, and whether it
-## has a target. Tier 0 thinks every tick, tier 1 every Nth, tier 2 every Mth and may not test line of sight,
-## tier 3 sleeps. Phases come from the NPC's seed, so a thousand brains do not all fall on one frame.
-##
-## Only the host's tick order matters: [method advance] must run before the brains it gates, which
-## [member auto_advance] arranges with an early physics priority.
+## Opt-in level-of-detail time-slicer for NPC brains: a brain asks [method admit] before each think.
+## Tier comes from distance to the nearest player, visibility and target; tier 3 sleeps, phases come from the NPC seed.
+## [method advance] must run before the brains it gates ([member auto_advance]); disabled, nothing changes.
 
 const CHANNEL := "npc.ai.sched"
 
@@ -68,6 +59,8 @@ var _serial: int = 0
 var _los_cache: Dictionary = {}
 var _path_cache: Dictionary = {}
 var _players: Array = []
+var _player_buf: Array = []
+var _group_players: Callable = _positions_from_group
 var _players_tick: int = -1
 var _active_from: float = 0.0
 var _was_enabled: bool = false
@@ -434,12 +427,17 @@ func _now_us() -> int:
 func _read_players() -> Array:
 	if players_source.is_valid():
 		return players_source.call()
-	var out: Array = []
+	return _group_players.call()
+
+
+## Player positions from the group; a Callable so the once-per-tick scan is not a per-frame call.
+func _positions_from_group() -> Array:
+	_player_buf.clear()
 	if is_inside_tree():
 		for node in get_tree().get_nodes_in_group(config.player_group):
 			if node is Node3D:
-				out.append((node as Node3D).global_position)
-	return out
+				_player_buf.append((node as Node3D).global_position)
+	return _player_buf
 
 
 func _retier(slot: Slot) -> void:
@@ -470,16 +468,24 @@ func _retier(slot: Slot) -> void:
 
 
 func _tier_for(distance: float, current: int) -> int:
-	var edges := [config.full_range, config.mid_range, config.far_range]
 	var raw := TIERS - 1
-	for i in edges.size():
-		if distance < edges[i]:
-			raw = i
-			break
+	if distance < config.full_range:
+		raw = 0
+	elif distance < config.mid_range:
+		raw = 1
+	elif distance < config.far_range:
+		raw = 2
 	# Calmer only once clear of the edge by the margin.
-	if current >= 0 and raw > current and current < TIERS - 1 and distance < edges[current] + config.hysteresis:
+	if current >= 0 and raw > current and current < TIERS - 1 and distance < _edge(current) + config.hysteresis:
 		return current
 	return raw
+
+
+func _edge(i: int) -> float:
+	match i:
+		0: return config.full_range
+		1: return config.mid_range
+		_: return config.far_range
 
 
 func _prune_caches() -> void:

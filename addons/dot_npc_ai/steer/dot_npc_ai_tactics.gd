@@ -3,31 +3,15 @@ extends RefCounted
 
 ## Where to stand: around an enemy, behind it, and the best of a set of places.
 ##
-## Like [DotNpcAiSteering], every function answers with a position or a score and moves
-## nothing, so it can be used by a brain, a director placing an ambush, or a suite.
-##
-## [b]Surrounding is the behaviour this exists for.[/b] With [DotNpcAiSquad]'s attack slots,
-## the NPCs that are not attacking need somewhere to be, and the two bad answers are "in a
-## queue behind the attackers" and "standing still where they were". The good one is a ring
-## round the enemy just out of reach, spread out, working round to the side the enemy is
-## not facing — so when an attacker falls the next one is already close, and the player
-## who turns to face one has turned their back on another.
+## Like [DotNpcAiSteering], every function answers with a position or a score and moves nothing.
+## Surrounding is the point: NPCs without an attack slot ([DotNpcAiSquad]) take a spread ring round the enemy,
+## working round to the side it is not facing, so a player facing one has turned their back on another.
 
 # No log channel: pure functions.
 
-## A point on a ring of [param radius] round [param center], for an NPC at [param from].
-##
-## The NPC holds its own bearing — the nearest point of the ring — so a crowd fans out by
-## where each one already is rather than all heading for one spot. [param flank] (radians)
-## places the point that far round toward the side opposite [param enemy_facing], at most:
-## the NPC walks at it, its bearing advances, and next tick the point is further round, so
-## it circles behind the enemy at walking pace rather than teleporting there.
-##
-## [b]A lead angle, not a per-tick step.[/b] The first version took `rate * delta`, which
-## put the point a few centimetres ahead — inside any sensible "arrived" distance — so the
-## NPC arrived, stopped, and never got round at all.
-##
-## [param enemy_facing] may be zero, and then there is no "behind" to work toward.
+## A point on a ring of [param radius] round [param center], for an NPC at [param from], holding its own bearing.
+## [param flank] radians toward the side opposite [param enemy_facing] is a lead angle, not a per-tick step
+## (`rate * delta` lands inside any "arrived" distance); a zero [param enemy_facing] has no "behind".
 static func ring_point(
 	center: Vector3,
 	from: Vector3,
@@ -73,11 +57,8 @@ static func ring_toward(
 ## A bearing each for [param positions] round [param center], spread [param step] radians
 ## apart across an arc centred on [param focus]. Returned in the order of [param positions].
 ##
-## [b]Handed out in the order they already stand[/b], measured round from the focus, so the
-## NPC furthest round one way gets the place furthest round that way and no two cross each
-## other's path to get to theirs. Without a share-out every NPC walks at "directly behind",
-## they arrive at one point, and a surround is a heap — which is what the first version of
-## this did, and a picture of it, not a check, is what showed it.
+## Handed out in the order they already stand, measured round from the focus, so no two cross paths;
+## without a share-out every NPC walks at "directly behind" and a surround is a heap.
 static func spread_bearings(
 	center: Vector3, focus: float, positions: Array, step: float, max_arc: float = TAU * 0.85
 ) -> PackedFloat32Array:
@@ -136,9 +117,7 @@ static func angle_from_behind(center: Vector3, enemy_facing: Vector3, from: Vect
 ## The index of the best of [param candidates] by [param scorer], or -1.
 ##
 ## [param scorer] is `func(position: Vector3, index: int) -> float`; higher is better, and
-## -INF rules a place out. Utility scoring rather than a fixed rule, because "the best place
-## to stand" is always a trade — near against covered, close to the enemy against exposed to
-## it — and a trade written as an if-chain is the one that stands in the open.
+## -INF rules a place out. Scored rather than an if-chain, because "best place" is always a trade.
 static func best_of(candidates: PackedVector3Array, scorer: Callable) -> int:
 	var best := -1
 	var best_score := -INF

@@ -1,11 +1,8 @@
 class_name DotNpcAiCrowdGrid
 extends RefCounted
 
-## A crowd's positions in a flat spatial hash, rebuilt once a tick, so spacing and "who is near"
-## cost a few cells rather than a walk over everybody or an array built per question.
-##
-## Cells are linked lists in packed arrays, in the order added, so a query visits entries in the
-## order a per-cell array would and its sums match DotNpcAiSteering.separate's bit for bit.
+## A crowd's positions in a flat spatial hash rebuilt once a tick, so "who is near" costs a few cells.
+## Cells are linked lists in packed arrays in insertion order, so sums match DotNpcAiSteering.separate bit for bit.
 
 ## The cell's side in metres; a query reaches every cell its radius touches.
 var cell: float = 2.0

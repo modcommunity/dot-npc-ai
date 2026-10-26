@@ -405,6 +405,55 @@ func _test_cost() -> void:
 	_done()
 
 
+func _review_gaps_queue_and_paths() -> void:
+	# Owed brains do not pile up while disabled or after they leave.
+	var o := _scheduler(true, [Vector3.ZERO], 0.2)
+	var crowd: Array = []
+	for i in 30:
+		crowd.append(_brain(o, Vector3(5, 0, 0), 300 + i))
+	o.advance(1.0 / 60.0)
+	for b in crowd:
+		o.admit(b, 0.016)
+	var owed_before: int = o.describe()["owed"]
+	for i in 10:
+		o.unregister(crowd[i])
+	_check(owed_before > 0 and o.describe()["owed"] < owed_before, "an owed brain that leaves is dropped from the queue", "%d then %d" % [owed_before, o.describe()["owed"]])
+	o.config.enabled = false
+	o.advance(1.0 / 60.0)
+	_check(o.describe()["owed"] == 0, "and a disabled scheduler holds none")
+
+	# No players: asleep, not full rate; an engaged brain still wakes.
+	var e := _scheduler(true, [])
+	var lonely := _brain(e, Vector3(5, 0, 0), 3)
+	_check(e.tier_of(lonely) == 3, "with nobody to see them every brain sleeps", str(e.tier_of(lonely)))
+	lonely.npc.target = true
+	e.wake(lonely)
+	_check(e.tier_of(lonely) <= e.config.engaged_max_tier, "unless it has a target")
+
+	# Paths: a spent allowance is reported as denied, and the tier 0 cap can be asked for.
+	var p := _scheduler()
+	p.advance(0.016)
+	var solve := func() -> Variant: return Vector3.ONE
+	for i in 5:
+		p.cached_path("q%d" % i, solve)
+	_check(p.path_denied, "a denied path request says so, so a caller can tell it from no path")
+	p.cached_path("q0", solve)
+	_check(not p.path_denied, "and a cached answer clears it")
+	p.advance(0.016)
+	var slots := 0
+	for i in 6:
+		slots += 1 if p.take_path_slot() else 0
+	_check(slots == p.config.max_paths_per_frame, "take_path_slot() spends the same per-frame allowance", str(slots))
+
+	# A tier too calm for sight tests is never handed a stale yes.
+	var l := _scheduler()
+	var near := _brain(l, Vector3(10, 0, 0), 1)
+	var calm := _brain(l, Vector3(90, 0, 0), 2)
+	l.advance(0.016)
+	l.cached_los(near, &"k", func() -> bool: return true)
+	_check(l.cached_los(calm, &"k", func() -> bool: return true) == false, "a calm tier is told no even when a yes is cached")
+
+
 func _test_review_gaps() -> void:
 	_section("gaps a review found")
 
@@ -474,50 +523,5 @@ func _test_review_gaps() -> void:
 	w.wake(far)
 	_check(w.admit(far, 0.016) >= 0.0, "and lets it think this tick")
 
-	# Owed brains do not pile up while disabled or after they leave.
-	var o := _scheduler(true, [Vector3.ZERO], 0.2)
-	var crowd: Array = []
-	for i in 30:
-		crowd.append(_brain(o, Vector3(5, 0, 0), 300 + i))
-	o.advance(1.0 / 60.0)
-	for b in crowd:
-		o.admit(b, 0.016)
-	var owed_before: int = o.describe()["owed"]
-	for i in 10:
-		o.unregister(crowd[i])
-	_check(owed_before > 0 and o.describe()["owed"] < owed_before, "an owed brain that leaves is dropped from the queue", "%d then %d" % [owed_before, o.describe()["owed"]])
-	o.config.enabled = false
-	o.advance(1.0 / 60.0)
-	_check(o.describe()["owed"] == 0, "and a disabled scheduler holds none")
-
-	# No players: asleep, not full rate; an engaged brain still wakes.
-	var e := _scheduler(true, [])
-	var lonely := _brain(e, Vector3(5, 0, 0), 3)
-	_check(e.tier_of(lonely) == 3, "with nobody to see them every brain sleeps", str(e.tier_of(lonely)))
-	lonely.npc.target = true
-	e.wake(lonely)
-	_check(e.tier_of(lonely) <= e.config.engaged_max_tier, "unless it has a target")
-
-	# Paths: a spent allowance is reported as denied, and the tier 0 cap can be asked for.
-	var p := _scheduler()
-	p.advance(0.016)
-	var solve := func() -> Variant: return Vector3.ONE
-	for i in 5:
-		p.cached_path("q%d" % i, solve)
-	_check(p.path_denied, "a denied path request says so, so a caller can tell it from no path")
-	p.cached_path("q0", solve)
-	_check(not p.path_denied, "and a cached answer clears it")
-	p.advance(0.016)
-	var slots := 0
-	for i in 6:
-		slots += 1 if p.take_path_slot() else 0
-	_check(slots == p.config.max_paths_per_frame, "take_path_slot() spends the same per-frame allowance", str(slots))
-
-	# A tier too calm for sight tests is never handed a stale yes.
-	var l := _scheduler()
-	var near := _brain(l, Vector3(10, 0, 0), 1)
-	var calm := _brain(l, Vector3(90, 0, 0), 2)
-	l.advance(0.016)
-	l.cached_los(near, &"k", func() -> bool: return true)
-	_check(l.cached_los(calm, &"k", func() -> bool: return true) == false, "a calm tier is told no even when a yes is cached")
+	_review_gaps_queue_and_paths()
 	_done()

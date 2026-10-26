@@ -1,13 +1,9 @@
 class_name DotNpcAiAvoidance
 extends Node
 
-## Local avoidance for NPC crowds: a safe velocity from the one an NPC wants.
-##
-## Opt-in. Place one, set [member config] (enabled), register it with [method register_service]; a brain finds it
-## and passes its steering through [method steer]. Two backends behind one call: the navigation server's RVO
-## where [method rvo_supported] says it exists, and an own velocity-obstacle pass (a grid, the nearest few
-## neighbours, a sidestep per predicted collision) where it does not. Walls are the physics world's job.
-## NPCs in a calm scheduler tier skip it, so far crowds cost nothing.
+## Opt-in local avoidance for NPC crowds: a safe velocity from the one an NPC wants, via [method steer].
+## The navigation server's RVO where [method rvo_supported], else an own velocity-obstacle pass; walls are physics' job.
+## Register with [method register_service]; NPCs in a calm scheduler tier skip it.
 
 const CHANNEL := "npc.ai.avoid"
 

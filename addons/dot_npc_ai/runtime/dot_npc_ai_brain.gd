@@ -29,6 +29,8 @@ extends DotNpcBrain
 ## cannot resolve a `class_name` — which is the whole reason `brain_script_path` is a
 ## path — and a game's brain extending this by name works in a build only.
 
+const _Leaves := preload("dot_npc_ai_brain_leaves.gd")
+
 ## The tree, or null for a game using only the machine.
 var tree: DotNpcAiNode = null
 
@@ -529,14 +531,10 @@ func _npc_unbound() -> void:
 	squad = null
 
 
-# --- Subclass interface -------------------------------------------------------
-
 ## Build [member tree] and/or [member machine] here. Called once, on spawn.
 func _build() -> void:
 	pass
 
-
-# --- Helpers ------------------------------------------------------------------
 
 ## Whether this NPC has had time to react to its current target.
 ##
@@ -617,8 +615,6 @@ func memory_time() -> float:
 func tactics() -> float:
 	return character.tactics if character != null else 0.5
 
-
-# --- Sensing ------------------------------------------------------------------
 
 ## Everything this NPC notices this tick, before anything decides.
 ##
@@ -827,8 +823,6 @@ func _squad_report(
 	return news
 
 
-# --- What it knows ------------------------------------------------------------
-
 ## Where its current target — or, with none, the most recent thing it knows about — was
 ## last known to be. [constant Vector3.INF] when there is nothing.
 ##
@@ -875,8 +869,6 @@ func _end_search() -> void:
 	blackboard.erase(KEY_SEARCH_HEADING)
 	blackboard.erase(KEY_SEARCH_ID)
 
-
-# --- Leaves a game can use ----------------------------------------------------
 
 ## Goes to where a lost enemy probably is, then looks round. A ready-made leaf.
 ##
@@ -1038,86 +1030,10 @@ func _release_roles_on(target: StringName) -> void:
 
 ## Holds a place on a ring round the target, sharing the ring out with the rest of the
 ## squad that is waiting. The leaf for a squad member that has not got an attack slot.
-##
-## [b]Shared out, not each for itself.[/b] Every waiter on the same target gets its own
-## bearing across an arc ([method DotNpcAiTactics.spread_bearings]), so they stand apart
-## rather than arriving at one point and stacking. Where the arc is centred is
-## [method tactics]: round where the squad already is for a dull one, and round the enemy's
-## back — the side away from whoever is hitting it, which is where it is looking — for a
-## smart one. A player who turns to face one has turned their back on the attacker.
-##
-## RUNNING while there is a target; FAILURE when there is none.
 func surround(
 	ctx: DotNpcAiContext, speed: float, radius: float = 4.0, spacing: float = 1.6
 ) -> DotNpcAiNode.Status:
-	if npc == null or not npc.is_alive() or not npc.has_target():
-		return DotNpcAiNode.Status.FAILURE
-
-	var center := target_position(Vector3.INF)
-
-	if center == Vector3.INF:
-		return DotNpcAiNode.Status.FAILURE
-
-	var here := npc.position()
-	var group: Array
-	var positions: Array
-	var facing: Vector3
-
-	# Who is waiting on this target and which way it faces are the same answer for every
-	# waiter in a tick: worked out by the first to ask and shared through the squad.
-	var now := _world_now()
-	var key := &"" if squad == null else StringName("surround:" + String(npc.target_id))
-	var shared: Variant = squad.memo(key, now) if squad != null else null
-
-	if shared is Array and (shared[0] as Array).has(self):
-		group = shared[0]
-		positions = shared[1]
-		facing = shared[2]
-	else:
-		group = _waiting_with()
-		positions = []
-
-		for member in group:
-			positions.append(member.npc.position())
-
-		facing = _enemy_facing(center)
-
-		if squad != null:
-			squad.remember(key, now, [group, positions, facing])
-
-	var focus := DotNpcAiTactics.mean_bearing(center, positions)
-
-	if facing.length_squared() > 0.0001:
-		var behind := atan2(-facing.z, -facing.x)
-		focus = lerp_angle(focus, behind, tactics())
-
-	# One place per spacing of arc, measured at the ring's radius.
-	var step := clampf(spacing * 1.4 / maxf(radius, 0.5), 0.2, PI)
-	var bearings := DotNpcAiTactics.spread_bearings(center, focus, positions, step)
-	var mine := group.find(self)
-	var bearing := bearings[mine] if mine >= 0 else focus
-	var point := DotNpcAiTactics.ring_toward(center, here, radius, bearing, flank_lead)
-
-	var flat := point - here
-	flat.y = 0.0
-
-	if flat.length() < 0.6:
-		# There — but still apart. A waiter that halts on its spot is one that stays wherever
-		# the squad's last shove left it, which is how a ring becomes a heap.
-		var forward := npc.facing()
-		var right := Vector3(-forward.z, 0.0, forward.x)
-		var apart := separation(here, spacing, right)
-
-		if apart.length() > 0.05:
-			steer_toward(here + apart * 2.0, speed * 0.5, ctx.delta)
-		else:
-			halt()
-
-		face(center - here)
-		return DotNpcAiNode.Status.RUNNING
-
-	steer_with_spacing(point, speed, ctx.delta, spacing)
-	return DotNpcAiNode.Status.RUNNING
+	return _Leaves.surround(self, ctx, speed, radius, spacing)
 
 
 ## What a member without an attack token does: take the best flanking place on a ring round the target and hold it
@@ -1125,116 +1041,18 @@ func surround(
 func hold_off(
 	ctx: DotNpcAiContext, speed: float, radius: float = 4.0, spacing: float = 1.6
 ) -> DotNpcAiNode.Status:
-	if squad == null or not squad.tokens.enabled:
-		return surround(ctx, speed, radius, spacing)
-
-	if npc == null or not npc.is_alive() or not npc.has_target():
-		return DotNpcAiNode.Status.FAILURE
-
-	var center := target_position(Vector3.INF)
-
-	if center == Vector3.INF:
-		return DotNpcAiNode.Status.FAILURE
-
-	var here := npc.position()
-	var allies: Array = []
-
-	for member in _waiting_with():
-		if member != self:
-			allies.append(member.npc.position())
-
-	var point := DotNpcAiTactics.best_flank(center, _enemy_facing(center), here, radius, allies, squad.tokens)
-
-	if point == Vector3.INF:
-		return DotNpcAiNode.Status.FAILURE
-
-	var flat := point - here
-	flat.y = 0.0
-
-	if flat.length() < 0.6:
-		var forward := npc.facing()
-		var right := Vector3(-forward.z, 0.0, forward.x)
-		var apart := separation(here, spacing, right)
-
-		if apart.length() > 0.05:
-			steer_toward(here + apart * 2.0, speed * 0.5, ctx.delta)
-		else:
-			halt()
-
-		face(center - here)
-		return DotNpcAiNode.Status.RUNNING
-
-	steer_with_spacing(point, speed, ctx.delta, spacing)
-	return DotNpcAiNode.Status.RUNNING
+	return _Leaves.hold_off(self, ctx, speed, radius, spacing)
 
 
 ## The squad members waiting on the same target as this one, this one included, in a fixed
 ## order. Alone, or with no squad, just this one.
 func _waiting_with() -> Array:
-	var out: Array = [self]
-
-	if squad == null or not npc.has_target():
-		return out
-
-	var holding := squad.holder_ids(_attack_slot())
-	out.clear()
-
-	for member in squad.members():
-		var other = member if is_instance_valid(member) else null
-
-		if other == null or other.npc == null or not other.npc.is_alive():
-			continue
-
-		if other.npc.target_id != npc.target_id or holding.has(other.get_instance_id()):
-			continue
-
-		out.append(other)
-
-	if not out.has(self):
-		out.append(self)
-
-	return out
+	return _Leaves._waiting_with(self)
 
 
 ## Which way the enemy at [param center] is probably looking.
-##
-## At its nearest attacker if a squadmate holds the attack — a player being hit looks at
-## what is hitting them — or along its velocity, or nowhere.
 func _enemy_facing(center: Vector3) -> Vector3:
-	if squad != null and npc.has_target():
-		var holding := squad.holder_ids(_attack_slot())
-		var nearest := Vector3.INF
-
-		for member in squad.members():
-			var other = member if is_instance_valid(member) else null
-
-			if other == null or other == self or other.npc == null or not other.npc.is_alive():
-				continue
-
-			if not holding.has(other.get_instance_id()):
-				continue
-
-			var at: Vector3 = other.npc.position()
-
-			if nearest == Vector3.INF or at.distance_squared_to(center) < nearest.distance_squared_to(center):
-				nearest = at
-
-		if nearest != Vector3.INF:
-			var look := nearest - center
-			look.y = 0.0
-
-			if look.length_squared() > 0.0001:
-				return look.normalized()
-
-	var entry := memory.get_entry(npc.target_id, context.now) if memory != null and npc.has_target() else null
-
-	if entry != null:
-		var moving := Vector3(entry.velocity.x, 0.0, entry.velocity.z)
-
-		if moving.length() > 0.5:
-			return moving.normalized()
-
-	return Vector3.ZERO
+	return _Leaves._enemy_facing(self, center)
 
 
 ## The best cover from [param threat] within [param max_distance], or [constant Vector3.INF].
@@ -1333,214 +1151,33 @@ func _nav_data() -> DotNpcNavData:
 	return null
 
 
-# --- Shooting -----------------------------------------------------------------
-
-## Where to aim at the current target from [param muzzle], leading it and missing by this
-## character's aim — [method DotNpcAiCharacter.aim_point], fed the velocity this NPC's own
-## memory measured rather than the target's true one. [constant Vector3.INF] with no target.
-##
-## [b]The velocity is what it SAW.[/b] A bot handed the target's real velocity leads a
-## player who has just changed direction perfectly, which is the aimbot tell; one leading
-## from its own last few sightings is a beat behind a juke, which is what a person is.
-##
-## Each call is a new shot: the error seed advances, so it is called once per shot taken.
+## Where to aim at the target from [param muzzle], leading it and missing by this character's aim.
+## Fed the velocity this NPC's memory measured, not the true one; each call is a new shot. [constant Vector3.INF] with no target.
 func aim_solution(muzzle: Vector3, travel_speed: float = 0.0) -> Vector3:
-	if npc == null or not npc.has_target() or character == null:
-		return target_position(Vector3.INF)
-
-	var at := target_position(Vector3.INF)
-
-	if at == Vector3.INF:
-		return at
-
-	var entry := memory.get_entry(npc.target_id, context.now) if memory != null else null
-	var velocity := entry.velocity if entry != null else Vector3.ZERO
-	shots_fired += 1
-	return character.aim_point(muzzle, at, velocity, travel_speed, shots_fired)
+	return _Leaves.aim_solution(self, muzzle, travel_speed)
 
 
-## Whether this NPC may shoot at its target now.
-##
-## Every gate a human has, in the order they bite: it can SEE the target (not merely
-## remember it), it has had time to react, it is FACING it — within [param tolerance_deg],
-## so the turn rate limits how fast it can bring a weapon round — the lane is clear of its
-## own squad, and its character's fire throttle lets this one through.
+## Whether this NPC may shoot now: sees the target, has reacted, faces it, lane clear of squadmates, fire throttle open.
 func ready_to_fire(muzzle: Vector3, tolerance_deg: float = 12.0) -> bool:
-	if npc == null or not npc.is_alive() or not npc.has_target() or context == null:
-		return false
-
-	if not context.has_condition(DotNpcAiConditions.SEE_ENEMY) or not has_reacted():
-		return false
-
-	var at := target_position(Vector3.INF)
-
-	if at == Vector3.INF:
-		return false
-
-	var to := at - npc.position()
-	to.y = 0.0
-
-	if to.length_squared() < 0.0001:
-		return true
-
-	if rad_to_deg(npc.facing().angle_to(to.normalized())) > tolerance_deg:
-		return false
-
-	if not fire_lane_clear(muzzle, at):
-		return false
-
-	return character == null or character.should_fire(context.tick_index)
+	return _Leaves.ready_to_fire(self, muzzle, tolerance_deg)
 
 
 ## Whether a shot from [param from] to [param to] passes clear of every squadmate.
-##
-## [b]The friendly-fire check, and it is a tactics question.[/b] Below
-## [constant CALLOUT_TACTICS] an NPC does not look, and shoots its own squad in the back —
-## which is what a dull one does, and what makes a horde of them dangerous to itself.
 func fire_lane_clear(from: Vector3, to: Vector3, clearance: float = 0.8) -> bool:
-	if squad == null or tactics() < CALLOUT_TACTICS:
-		return true
-
-	var lane := to - from
-	var length := lane.length()
-
-	if length < 0.001:
-		return true
-
-	var along := lane / length
-
-	for member in squad.members():
-		var other = member if is_instance_valid(member) else null
-
-		if other == null or other == self or other.npc == null or not other.npc.is_alive():
-			continue
-
-		var offset: Vector3 = other.npc.position() - from
-		var t: float = offset.dot(along)
-
-		if t <= 0.0 or t >= length:
-			continue
-
-		var closest: Vector3 = from + along * t
-		var flat: Vector3 = other.npc.position() - closest
-		flat.y = 0.0
-
-		if flat.length() < clearance:
-			return false
-
-	return true
+	return _Leaves.fire_lane_clear(self, from, to, clearance)
 
 
-## Keeps between [param near] and [param far] metres from the target, strafing across it,
-## and faces it the whole time. The leaf for anything that fights at range. RUNNING while
-## there is a target, FAILURE without one.
-##
-## [b]Strafing, not standing.[/b] A gunner that stands still at range is a target; one that
-## drifts sideways is a harder one, and the direction of the drift flips on a period from
-## its own seed so twenty of them do not all slide the same way.
+## Keeps between [param near] and [param far] metres from the target, strafing across it, facing it.
+## RUNNING while there is a target, FAILURE without one.
 func hold_range(
 	ctx: DotNpcAiContext, speed: float, near: float = 8.0, far: float = 16.0, spacing: float = 1.6
 ) -> DotNpcAiNode.Status:
-	if npc == null or not npc.is_alive() or not npc.has_target():
-		return DotNpcAiNode.Status.FAILURE
-
-	var at := target_position(Vector3.INF)
-
-	if at == Vector3.INF:
-		return DotNpcAiNode.Status.FAILURE
-
-	var here := npc.position()
-	var to := at - here
-	to.y = 0.0
-	var distance := to.length()
-
-	if distance < 0.001:
-		return DotNpcAiNode.Status.RUNNING
-
-	var toward := to / distance
-	var side := Vector3(-toward.z, 0.0, toward.x)
-	var period := 2.5 + 2.0 * DotNpcAiNode.deterministic_unit(npc.seed, 4421)
-	var drift := 1.0 if fmod(ctx.now / period, 2.0) < 1.0 else -1.0
-	var wanted := side * drift * 0.6
-
-	if distance > far:
-		wanted += toward
-	elif distance < near:
-		wanted -= toward
-
-	steer_with_spacing(here + wanted.normalized() * 4.0, speed, ctx.delta, spacing)
-	face(to)
-	return DotNpcAiNode.Status.RUNNING
+	return _Leaves.hold_range(self, ctx, speed, near, far, spacing)
 
 
-# --- Learning the map -----------------------------------------------------------
-
-## Walks the places players actually go on this map, and waits at each one facing the way
-## they come. A ready-made leaf for when there is nobody to fight and nothing to search.
-##
-## [b]Knowledge a wanderer does not have.[/b] [DotNpcAiHeatmap] is what the game has learned
-## of where players walk; an NPC with [method tactics] of [constant PATROL_TACTICS] or more
-## patrols its hottest cells near it, and one below wanders — the dull monster does not
-## know the map, which is half of why it is dull. How long it waits at each is its
-## character's `camper`: a camper sets up and holds a corridor, a roamer moves on.
-##
-## RUNNING while patrolling; FAILURE with no heat map, nothing hot near, or too little
-## tactics, which hands a selector on to its wander.
+## Patrols the hottest cells near it and waits at each facing the traffic. FAILURE with no heat map, nothing hot, or too little tactics.
 func patrol_hot(ctx: DotNpcAiContext, speed: float, radius: float = 40.0) -> DotNpcAiNode.Status:
-	if npc == null or not npc.is_alive() or blackboard == null:
-		return DotNpcAiNode.Status.FAILURE
-
-	if heatmap == null:
-		heatmap = DotNpcAiHeatmap.of(director)
-
-	if heatmap == null or tactics() < PATROL_TACTICS:
-		return DotNpcAiNode.Status.FAILURE
-
-	var here := npc.position()
-	var goal: Variant = blackboard.get_value(KEY_PATROL_GOAL, ctx.now, null)
-
-	if not (goal is Vector3):
-		var hot := heatmap.hottest(DotNpcAiHeatmap.TRAFFIC, here, radius, _world_now(), 4)
-
-		if hot.is_empty():
-			return DotNpcAiNode.Status.FAILURE
-
-		# Not always the hottest: a pick among the top few, from the NPC's own seed and how
-		# many it has visited, so a pack does not all stand on one cell and one NPC does not
-		# guard the same doorway for ever.
-		var visits := blackboard.get_int(KEY_PATROL_VISITS, ctx.now, 0)
-		var pick := int(DotNpcAiNode.deterministic_unit(npc.seed, visits + 1) * hot.size())
-		goal = Vector3(hot[mini(pick, hot.size() - 1)].x, here.y, hot[mini(pick, hot.size() - 1)].z)
-		blackboard.put(KEY_PATROL_GOAL, goal, ctx.now)
-		blackboard.erase(KEY_PATROL_ARRIVED)
-
-	var flat: Vector3 = goal - here
-	flat.y = 0.0
-
-	if flat.length() > heatmap.cell_size * 0.5 and not blackboard.has(KEY_PATROL_ARRIVED, ctx.now):
-		steer_with_spacing(goal, speed, ctx.delta)
-		return DotNpcAiNode.Status.RUNNING
-
-	if not blackboard.has(KEY_PATROL_ARRIVED, ctx.now):
-		blackboard.put(KEY_PATROL_ARRIVED, ctx.now, ctx.now)
-
-	halt()
-
-	# Facing the way the traffic comes from: an ambusher watches the door, not the wall.
-	var flow := heatmap.flow_at(DotNpcAiHeatmap.TRAFFIC, here, _world_now())
-
-	if flow.length_squared() > 0.0001:
-		face(flow)
-
-	var camper := character.camper if character != null else 0.2
-	var hold := lerpf(2.0, 20.0, camper)
-
-	if ctx.now - blackboard.get_float(KEY_PATROL_ARRIVED, ctx.now, ctx.now) >= hold:
-		blackboard.erase(KEY_PATROL_GOAL)
-		blackboard.erase(KEY_PATROL_ARRIVED)
-		blackboard.put(KEY_PATROL_VISITS, blackboard.get_int(KEY_PATROL_VISITS, ctx.now, 0) + 1, ctx.now)
-
-	return DotNpcAiNode.Status.RUNNING
+	return _Leaves.patrol_hot(self, ctx, speed, radius)
 
 
 ## Whether a danger it heard is still live.
@@ -1554,79 +1191,13 @@ func danger_position() -> Vector3:
 
 
 ## Gets out of a danger's reach and waits there until it is over. A ready-made leaf.
-##
-## RUNNING while there is a live danger — moving while inside its reach, standing outside
-## it — and FAILURE when there is none. Put it first under a reactive root: nothing an NPC
-## is doing is worth standing on a grenade for.
 func flee_danger(ctx: DotNpcAiContext, speed: float) -> DotNpcAiNode.Status:
-	if npc == null or not npc.is_alive() or not in_danger():
-		return DotNpcAiNode.Status.FAILURE
-
-	var here := npc.position()
-	var away := here - _danger_at
-	away.y = 0.0
-
-	if away.length() > _danger_extent + 1.5:
-		halt()
-		return DotNpcAiNode.Status.RUNNING
-
-	if away.length_squared() < 0.0001:
-		away = -npc.facing()
-
-	steer_with_spacing(here + away.normalized() * 6.0, speed, ctx.delta)
-	return DotNpcAiNode.Status.RUNNING
+	return _Leaves.flee_danger(self, ctx, speed)
 
 
-# --- Being hurt ---------------------------------------------------------------
-
-## What being hurt by [param by] tells this NPC.
-##
-## Two things, and neither is "knows exactly where everybody is":
-##
-## - **With nothing to chase, it turns and goes to look** where the hurt came from. An NPC
-##   that keeps wandering while it is shot from behind is one you can farm, and the bug
-##   report is "they don't fight back".
-## - **Chasing somebody else, it may switch** — by its character's vengefulness, rolled
-##   from its own seed so a replay agrees. dot-npc's senses then hold the switch only if
-##   the attacker is actually perceived: a rival in sight takes the commitment back on the
-##   next pass, so a vengeful NPC cannot be led away from a target it can see by somebody
-##   it cannot.
+## What being hurt by [param by] tells this NPC: go and look, or (by vengefulness) switch target.
 func _hurt_by(by: StringName, amount: float) -> void:
-	_pending_damage += maxf(amount, 0.0)
-
-	if by == &"" or npc == null or not npc.is_alive() or memory == null or context == null:
-		return
-
-	if director == null or not director.has_method(&"candidate_position"):
-		return
-
-	var found: Variant = director.call(&"candidate_position", by, Vector3.INF)
-
-	if not (found is Vector3) or found == Vector3.INF:
-		# Not something it could ever target — the world, a trap, another NPC.
-		return
-
-	var at: Vector3 = found
-	memory.hurt_by(by, at, amount, context.now)
-
-	if npc.target_id == by:
-		return
-
-	if not npc.has_target():
-		face(at - npc.position())
-		return
-
-	if character == null or character.vengefulness <= 0.0:
-		return
-
-	var roll := character.unit(context.tick_index * 31 + by.hash())
-
-	if roll < character.vengefulness:
-		var now := _world_now()
-		npc.target_id = by
-		npc.target_since = now
-		npc.target_seen_at = now
-		npc.engaged_at = now
+	_Leaves._hurt_by(self, by, amount)
 
 
 ## The director's clock, which is the one dot-npc's senses stamp targets with.
@@ -1636,8 +1207,6 @@ func _world_now() -> float:
 
 	return context.now if context != null else 0.0
 
-
-# --- Turning ------------------------------------------------------------------
 
 ## Turns toward [param direction] no faster than this character can.
 ##

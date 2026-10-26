@@ -87,7 +87,6 @@ func _init(p_name: StringName = &"") -> void:
 	squad_name = p_name
 
 
-# --- Membership ---------------------------------------------------------------
 
 func join(member: Object) -> void:
 	if member == null:
@@ -177,7 +176,6 @@ func index_of(member: Object) -> int:
 	return members().find(member)
 
 
-# --- Sharing ------------------------------------------------------------------
 
 ## [param from] saw [param enemy] at [param position] moving at [param velocity].
 ##
@@ -274,13 +272,10 @@ func _trim_log() -> void:
 			_latest_seq.erase(enemy)
 
 
-# --- Slots --------------------------------------------------------------------
 
 ## Takes one of [param capacity] places in [param slot], or keeps the one already held.
 ##
-## [b]First come, first kept.[/b] A slot holder is never displaced by a newcomer, because
-## an attack that is handed to whoever asked most recently is an attack that changes hands
-## every tick and is never made.
+## First come, first kept: a holder is never displaced, or attacks would change hands every tick.
 func claim(slot: StringName, member: Object, capacity: int) -> bool:
 	if member == null or capacity <= 0:
 		return false
@@ -385,9 +380,7 @@ func holder_count(slot: StringName) -> int:
 ## The holders of [param slot] whose members still exist. The stored list itself while every
 ## holder is live (callers only read it, or append through [method claim]); a pruned list otherwise.
 ##
-## Checked on every read rather than trusted: a member freed without leaving — a node
-## freed by its world, which is how worlds end — would otherwise hold its slot for ever,
-## and a squad whose two attack slots belong to the dead never attacks again.
+## Checked on every read: a member freed without leaving (a world ending) would hold its slot for ever.
 func _live_holders(slot: StringName) -> Array:
 	var holders: Variant = _slots.get(slot)
 
@@ -418,7 +411,6 @@ func _live_holders(slot: StringName) -> Array:
 	return live
 
 
-# --- Attack tokens ------------------------------------------------------------
 
 ## Asks for an attack token against [param target] at clock reading [param now]; true when [param member] holds one.
 ##
