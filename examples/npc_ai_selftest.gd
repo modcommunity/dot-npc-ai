@@ -14,7 +14,7 @@ extends "res://examples/selftest/conditions_tests.gd"
 ## selector aborts the branch it took over from, and that a repeater with a synchronous
 ## child does not hang the process.
 
-const CHECKS := 431
+const CHECKS := 433
 
 ## Sections entered against sections that ran to their last line, and against this. A
 ## runtime error inside a section aborts that function and nothing says so; a section that

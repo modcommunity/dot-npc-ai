@@ -210,6 +210,47 @@ func _test_squad() -> void:
 	pulled.pull(p2, 0)
 	_check(p2.reports.size() == 5, "a trimmed log still holds the newest of each enemy", str(p2.reports.size()))
 
+	# Both pull paths (a short stretch of log walked by row, a long one by enemy) give what a
+	# brute-force reading of the same reports gives, in the same order, at 100 enemies.
+	var crowd := DotNpcAiSquad.new(&"crowd")
+	crowd.pull_reports = true
+	var maker := FakeMember.new()
+	var reader := FakeMember.new()
+	crowd.join(maker)
+	crowd.join(reader)
+	var cursor := crowd.report_seq()
+	var newest := {}
+	var order: Array = []
+	var agree := true
+	var rounds := 0
+	var spent := 0
+
+	for burst in [3, 40, 100, 250, 7, 100]:
+		for i in burst:
+			var enemy := StringName("s%d" % ((rounds * 31 + i * 7) % 100))
+			var at := float(rounds * 1000 + i)
+			crowd.report(maker, enemy, Vector3(at, 0, 0), Vector3.ZERO, at)
+			newest[enemy] = at
+
+		order = []
+		for enemy in newest:
+			order.append([newest[enemy], enemy])
+		order.sort()
+		reader.reports.clear()
+		var t0 := Time.get_ticks_usec()
+		cursor = crowd.pull(reader, cursor)
+		spent += Time.get_ticks_usec() - t0
+		var got: Array = []
+		for r in reader.reports:
+			got.append([r[1].x, r[0]])
+		agree = agree and got == order
+		newest = {}
+		rounds += 1
+
+	_check(agree, "a pull gives the newest report per enemy in log order, short stretch or long")
+	_check(crowd.pull(reader, cursor) == cursor, "and a second pull at the end is empty")
+	print("squad pull, 6 pulls over 100 enemies: %d us" % spent)
+
 	# A member freed without leaving — which is how a world ends — must not keep its slot.
 	var squad2 := DotNpcAiSquad.new(&"beta")
 	var keep := FakeMember.new()

@@ -240,19 +240,30 @@ func pull(member: Object, since: int) -> int:
 
 	var own := member.get_instance_id()
 	var first := maxi(since, _log_base)
-	# Only each enemy's newest report is delivered, so walk those (a few) rather than the log
-	# (every sighting since, for every member), and deliver them in log order as before.
+
+	# Only each enemy's newest report is delivered, in log order: a short stretch of log is
+	# walked by row, a long one by the enemies' newest rows (sorted).
 	var due := PackedInt64Array()
 
-	for enemy in _latest_seq:
-		var seq := int(_latest_seq[enemy])
-		if seq >= first and seq < end and _log_from[seq - _log_base] != own:
-			due.append(seq)
+	if end - first <= _latest_seq.size():
+		for seq in range(first, end):
+			var i := seq - _log_base
+			if _log_from[i] != own and int(_latest_seq.get(_log_enemy[i], -1)) == seq:
+				due.append(i)
+	else:
+		for enemy in _latest_seq:
+			var seq := int(_latest_seq[enemy])
+			if seq >= first and seq < end and _log_from[seq - _log_base] != own:
+				due.append(seq)
 
-	due.sort()
+		due.sort()
+		for k in due.size():
+			due[k] -= _log_base
 
-	for seq in due:
-		var i := seq - _log_base
+	if due.is_empty():
+		return end
+
+	for i in due:
 		member.call(&"_squad_report", _log_enemy[i], _log_pos[i], _log_vel[i], _log_at[i])
 
 	return end
