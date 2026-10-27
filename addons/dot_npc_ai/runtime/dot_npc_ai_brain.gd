@@ -177,6 +177,11 @@ var _last_heard_id: int = 0
 var _last_report: float = -INF
 var _informed_pending: bool = false
 var _report_seq: int = 0
+
+## Seconds between reads of the squad's report log under `pull_reports`; 0 reads on every think.
+## The log keeps what was missed, so a longer gap only delays news by that much.
+var squad_pull_interval: float = 0.0
+var _pulled_at: float = -INF
 var _danger_at: Vector3 = Vector3.ZERO
 var _danger_extent: float = 0.0
 var _danger_until: float = -INF
@@ -675,7 +680,8 @@ func _sense() -> void:
 
 	_listen(c)
 
-	if squad != null and squad.pull_reports:
+	if squad != null and squad.pull_reports and (squad_pull_interval <= 0.0 or context.now - _pulled_at >= squad_pull_interval):
+		_pulled_at = context.now
 		_report_seq = squad.pull(self, _report_seq)
 
 	if _informed_pending:
