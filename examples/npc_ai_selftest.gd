@@ -14,13 +14,13 @@ extends "res://examples/selftest/conditions_tests.gd"
 ## selector aborts the branch it took over from, and that a repeater with a synchronous
 ## child does not hang the process.
 
-const CHECKS := 433
+const CHECKS := 436
 
 ## Sections entered against sections that ran to their last line, and against this. A
 ## runtime error inside a section aborts that function and nothing says so; a section that
 ## bailed out early after a failed guard is counted as not finished on purpose. The CHECKS
 ## total is the other half — see docs/testing.md.
-const SECTIONS := 40
+const SECTIONS := 41
 
 
 func _ready() -> void:
@@ -71,6 +71,7 @@ func _run() -> void:
 	_test_tactics()
 	_test_brain_perception()
 	_test_squad_on_real_npcs()
+	_test_squad_pull_interval()
 	_test_heatmap()
 	_test_ranged_and_roles()
 	await _test_nav_annotations()
@@ -1015,6 +1016,52 @@ func _walker(spawner: DotNpcSpawner, at: Vector3, goal: Vector3) -> DotNpcAiBrai
 		brain.steer_with_spacing(goal, 6.0, ctx.delta)
 		return DotNpcAiNode.Status.RUNNING)
 	return brain
+
+
+class CountingSquad extends DotNpcAiSquad:
+	var pulls := 0
+
+	func pull(member: Object, since: int) -> int:
+		pulls += 1
+		return super.pull(member, since)
+
+
+func _test_squad_pull_interval() -> void:
+	_section("a brain reads its squad's log at most every squad_pull_interval")
+
+	var spawner := _spawner()
+	var brain := spawner.spawn(&"zombie", Vector3.ZERO).brain as DotNpcAiBrain
+	var squad := CountingSquad.new(&"counted")
+	squad.pull_reports = true
+	var mate := FakeMember.new()
+	squad.join(mate)
+	squad.join(brain)
+	brain.squad = squad
+
+	for i in 30:
+		spawner.tick(1.0 / 60.0)
+	var open := squad.pulls
+	_check(open >= 25, "with no interval it reads on every think", "%d reads in 30 ticks" % open)
+
+	brain.squad_pull_interval = 0.5
+	brain._pulled_at = -INF
+	squad.pulls = 0
+	for i in 60:
+		spawner.tick(1.0 / 60.0)
+	_check(squad.pulls >= 2 and squad.pulls <= 3, "at 0.5 s it reads two or three times a second",
+		"%d reads in 60 ticks" % squad.pulls)
+
+	# A report made between reads is in the log and arrives at the next one.
+	var cursor := brain._report_seq
+	squad.report(mate, &"far_enemy", Vector3(5, 0, 5), Vector3.ZERO, spawner.now())
+	for i in 40:
+		spawner.tick(1.0 / 60.0)
+	_check(brain._report_seq > cursor, "and a report made between reads is not lost",
+		"cursor %d -> %d" % [cursor, brain._report_seq])
+
+	_world.remove_child(spawner)
+	spawner.free()
+	_done()
 
 
 func _test_throttled_cruise() -> void:
