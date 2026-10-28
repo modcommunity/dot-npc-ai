@@ -14,13 +14,13 @@ extends "res://examples/selftest/conditions_tests.gd"
 ## selector aborts the branch it took over from, and that a repeater with a synchronous
 ## child does not hang the process.
 
-const CHECKS := 436
+const CHECKS := 442
 
 ## Sections entered against sections that ran to their last line, and against this. A
 ## runtime error inside a section aborts that function and nothing says so; a section that
 ## bailed out early after a failed guard is counted as not finished on purpose. The CHECKS
 ## total is the other half — see docs/testing.md.
-const SECTIONS := 41
+const SECTIONS := 42
 
 
 func _ready() -> void:
@@ -63,6 +63,7 @@ func _run() -> void:
 	_test_attack_tokens()
 	_test_crowd_separation()
 	_test_server_skill()
+	_test_reaction_jitter()
 	_test_brain_under_a_skill()
 	_test_conditions()
 	_test_memory()
@@ -1592,6 +1593,30 @@ class FakeCvar:
 		return true
 
 
+func _test_reaction_jitter() -> void:
+	_section("reaction jitter and npc_humanise")
+
+	var plain := DotNpcAiCharacter.normal().with_seed(11)
+	plain.reaction_jitter = 0.0
+	var jittered := DotNpcAiCharacter.normal().with_seed(11)
+	jittered.reaction_jitter = 0.5
+
+	var plain_times: Array[float] = []
+	var jitter_times: Array[float] = []
+	for i in range(60):
+		plain_times.append(plain.effective_reaction(float(i) * 1.7))
+		jitter_times.append(jittered.effective_reaction(float(i) * 1.7))
+	_check(plain_times.min() == plain_times.max() and is_equal_approx(plain_times[0], plain.reaction_time), "jitter 0 is the plain reaction every time")
+	_check(jitter_times.min() >= jittered.reaction_time - 0.0001 and jitter_times.max() > jittered.reaction_time * 1.2, "jitter only ever slows it, sometimes noticeably")
+	_check(jittered.effective_reaction(3.3) == jittered.effective_reaction(3.3), "and the same sighting always reacts the same")
+	_check(not jittered.has_reacted(0.0, jittered.reaction_time * 0.99) and jittered.has_reacted(0.0, jittered.reaction_time * 2.0), "has_reacted follows the stretched reaction")
+
+	var skill := DotNpcAiSkill.new()
+	_check(is_equal_approx(skill.apply(jittered).reaction_jitter, 0.5), "npc_humanise 1 leaves a character's jitter")
+	_check(skill.set_cvar("npc_humanise", "0") and skill.apply(jittered).reaction_jitter == 0.0, "npc_humanise 0 removes it")
+	_done()
+
+
 func _test_server_skill() -> void:
 	_section("a server's skill, over each character")
 
@@ -1697,7 +1722,7 @@ func _test_server_skill() -> void:
 		return cv
 
 	var returned := bound.bind_cvars(add)
-	_check(made.size() == 3 and returned.size() == 3, "three cvars are registered")
+	_check(made.size() == 4 and returned.size() == 4, "four cvars are registered")
 	_check(
 		is_equal_approx(bound.skill, 0.5),
 		"and a value set before they were bound is read back",

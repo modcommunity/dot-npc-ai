@@ -36,12 +36,13 @@ extends RefCounted
 
 # No log channel: a few numbers and their parsing. The cvar that changed them logs.
 
-## Emitted after any of the three changes.
+## Emitted after any change.
 signal changed
 
 const CVAR_SKILL := "npc_skill"
 const CVAR_REACTION_SCALE := "npc_reaction_scale"
 const CVAR_REACTION_MIN := "npc_reaction_min"
+const CVAR_HUMANISE := "npc_humanise"
 
 ## Where [method attach] keeps this on a director.
 const META := &"dot_npc_ai_skill"
@@ -80,6 +81,9 @@ var reaction_scale: float = 1.0
 ## [method apply].
 var reaction_min: float = 0.05
 
+## Scales every character's reaction_jitter; 0 turns the human unevenness off.
+var humanise: float = 1.0
+
 ## Bumped on every change. A brain compares it rather than connecting a signal per NPC.
 var revision: int = 0
 
@@ -116,6 +120,7 @@ func apply(base: DotNpcAiCharacter) -> DotNpcAiCharacter:
 	if base.reaction_time > 0.0:
 		out.reaction_time = maxf(out.reaction_time * reaction_scale, reaction_min)
 
+	out.reaction_jitter = base.reaction_jitter * humanise
 	return out
 
 
@@ -133,7 +138,7 @@ static func _shift(
 
 ## Whether this changes nothing, so a caller can say "as authored".
 func is_neutral() -> bool:
-	return is_zero_approx(skill) and is_equal_approx(reaction_scale, 1.0)
+	return is_zero_approx(skill) and is_equal_approx(reaction_scale, 1.0) and is_equal_approx(humanise, 1.0)
 
 
 # --- Setting it ---------------------------------------------------------------
@@ -148,6 +153,14 @@ func set_reaction_scale(value: float) -> void:
 
 func set_reaction_min(value: float) -> void:
 	_assign(skill, reaction_scale, clampf(value, 0.0, REACTION_FLOOR_MAX))
+
+
+func set_humanise(value: float) -> void:
+	var v := clampf(value, 0.0, 1.0)
+	if v != humanise:
+		humanise = v
+		revision += 1
+		changed.emit()
 
 
 func _assign(p_skill: float, p_scale: float, p_min: float) -> void:
@@ -199,6 +212,11 @@ func set_cvar(cvar_name: String, text: String) -> bool:
 				set_reaction_min(text.to_float())
 			return true
 
+		CVAR_HUMANISE:
+			if text.strip_edges().is_valid_float():
+				set_humanise(text.to_float())
+			return true
+
 	return false
 
 
@@ -223,6 +241,13 @@ func cvar_specs() -> Array[Dictionary]:
 			"description": "Seconds no NPC reaction time goes below. 0 allows instant reactions.",
 			"min": 0.0,
 			"max": REACTION_FLOOR_MAX,
+		},
+		{
+			"name": CVAR_HUMANISE,
+			"value": _number(humanise),
+			"description": "How uneven NPC reaction times are, 0 to 1. 0 is the plain authored reaction every time.",
+			"min": 0.0,
+			"max": 1.0,
 		},
 	]
 	return out

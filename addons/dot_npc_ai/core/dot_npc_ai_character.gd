@@ -74,6 +74,9 @@ const MASK := 0x7FFFFFFFFFFFFFFF
 ## easiest bots are set near a second and a half.
 @export_range(0.0, 5.0, 0.01) var reaction_time: float = 0.35
 
+## How unevenly the reaction varies between sightings; 0 is the plain [member reaction_time].
+@export_range(0.0, 2.0, 0.01) var reaction_jitter: float = 0.3
+
 ## Multiplies the definition's sight range. 1.0 is "as far as the definition says".
 ##
 ## The original table calls it alertness and uses it for view distance. Scaling rather than
@@ -258,12 +261,22 @@ static func preset(preset_name: String) -> DotNpcAiCharacter:
 func has_reacted(seen_at: float, now: float) -> bool:
 	if reaction_time <= 0.0:
 		return true
-	return now - seen_at >= reaction_time
+	return now - seen_at >= effective_reaction(seen_at)
 
 
 ## How long is left before it may act. 0 once it has.
 func reaction_remaining(seen_at: float, now: float) -> float:
-	return maxf(0.0, reaction_time - (now - seen_at))
+	return maxf(0.0, effective_reaction(seen_at) - (now - seen_at))
+
+
+## The reaction to a sighting at [param seen_at]: [member reaction_time], stretched by a
+## skewed amount that is the same every time it is asked (most sightings quick, now and then
+## a slow one). Never shorter than the plain reaction; 0 [member reaction_jitter] is exactly it.
+func effective_reaction(seen_at: float) -> float:
+	if reaction_jitter <= 0.0 or reaction_time <= 0.0:
+		return reaction_time
+	var u := unit(int(seen_at * 1000.0) + 0x3a1c)
+	return reaction_time * (1.0 + reaction_jitter * 1.2 * u * u)
 
 
 ## Whether a target last seen at [param seen_at] is still believed to be findable.
