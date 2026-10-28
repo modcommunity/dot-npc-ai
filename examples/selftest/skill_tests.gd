@@ -273,6 +273,15 @@ func _test_server_skill() -> void:
 		"but a scripted NPC authored with no reaction time is not made to hesitate"
 	)
 
+	_server_skill_parse(skill)
+
+	_server_skill_cvars()
+
+
+	_done()
+
+
+func _server_skill_parse(skill: DotNpcAiSkill) -> void:
 	var before := skill.revision
 	skill.set_reaction_scale(0.1)
 	_check(skill.revision == before, "setting a value it already has is not a change")
@@ -290,7 +299,8 @@ func _test_server_skill() -> void:
 	)
 	_check(not DotNpcAiSkill.parse_skill("hrad").ok, "and a typo is refused")
 
-	# --- The cvars -----------------------------------------------------------------
+
+func _server_skill_cvars() -> void:
 	var bound := DotNpcAiSkill.new()
 	var made: Array = []
 	var preset_values := {DotNpcAiSkill.CVAR_SKILL: "hard"}
@@ -335,8 +345,6 @@ func _test_server_skill() -> void:
 	_check(DotNpcAiSkill.of(bare) == null, "and a director without one has none")
 	holder.free()
 	bare.free()
-
-	_done()
 
 
 func _test_brain_under_a_skill() -> void:
@@ -393,7 +401,19 @@ func _test_brain_under_a_skill() -> void:
 		"a character a game assigns mid-life is adopted rather than overwritten"
 	)
 
-	# --- Remembering, searching, giving up ------------------------------------------
+	_skill_memory(spawner, npc, brain, skill)
+
+	_skill_hurt(spawner, npc, brain, skill)
+
+	_skill_vengeance(spawner, npc, brain, skill)
+
+
+	_world.remove_child(spawner)
+	spawner.free()
+	_done()
+
+
+func _skill_memory(spawner: DotNpcSpawner, npc: DotNpcInstance, brain: DotNpcAiBrain, skill: DotNpcAiSkill) -> void:
 	var hidden := npc.def.faction
 	spawner.set_candidates([
 		DotNpcSenses.Candidate.new(&"player", Vector3(0, 0, -8), &"player")
@@ -437,7 +457,9 @@ func _test_brain_under_a_skill() -> void:
 	_check(not brain.remembers_target(), "and after looking round it forgets")
 	_check(int(brain.get(&"idles")) > 0, "and goes back to doing nothing")
 
-	# --- Being hurt by something it cannot see ---------------------------------------
+
+func _skill_hurt(spawner: DotNpcSpawner, npc: DotNpcInstance, brain: DotNpcAiBrain, skill: DotNpcAiSkill) -> void:
+	var hidden := npc.def.faction
 	var shooter_at := npc.position() + Vector3(12, 0, 0)
 	spawner.set_candidates([
 		DotNpcSenses.Candidate.new(&"sniper", shooter_at, hidden)
@@ -464,7 +486,8 @@ func _test_brain_under_a_skill() -> void:
 		"%.1f m from %.1f m" % [now.length(), was.length()]
 	)
 
-	# --- Vengeance -------------------------------------------------------------------
+
+func _skill_vengeance(spawner: DotNpcSpawner, npc: DotNpcInstance, brain: DotNpcAiBrain, skill: DotNpcAiSkill) -> void:
 	spawner.set_candidates([
 		DotNpcSenses.Candidate.new(&"near", npc.position() + Vector3(0, 0, -4), &"player"),
 		# Not much further than the other. The senses' stickiness switches BACK to a rival
@@ -498,10 +521,6 @@ func _test_brain_under_a_skill() -> void:
 	spawner.damage(npc.instance_id, 1.0, &"near" if held == &"far" else &"far")
 	spawner.tick(1.0 / 60.0)
 	_check(npc.target_id == held, "and one with no vengefulness does not")
-
-	_world.remove_child(spawner)
-	spawner.free()
-	_done()
 
 
 ## A node that runs for ever and counts how often it was told to stop.
@@ -565,7 +584,17 @@ func _test_brain_perception() -> void:
 	# Forget everything the earlier part learned, so what follows is the sound's doing.
 	brain.memory.clear()
 
-	# --- Hearing -------------------------------------------------------------
+	_perception_hearing_danger_turning(spawner, npc, brain, board, ctx, hidden)
+
+	_perception_prediction(spawner, npc, brain, board, ctx, hidden)
+
+	_world.remove_child(spawner)
+	spawner.free()
+	floor_body.queue_free()
+	_done()
+
+
+func _perception_hearing_danger_turning(spawner: DotNpcSpawner, npc: DotNpcInstance, brain: DotNpcAiBrain, board: DotNpcAiSounds, ctx: DotNpcAiContext, hidden: StringName) -> void:
 	var shot_at := npc.position() + Vector3(14, 0, 0)
 	spawner.set_candidates([DotNpcSenses.Candidate.new(&"q", shot_at, hidden)])
 	board.emit(DotNpcAiSounds.Kind.COMBAT, shot_at, 30.0, spawner.now(), 0.5, &"q")
@@ -588,7 +617,6 @@ func _test_brain_perception() -> void:
 		"%.1f m from %.1f m" % [_flat(npc.position(), shot_at), before]
 	)
 
-	# --- Danger --------------------------------------------------------------
 	brain.memory.clear()
 	spawner.set_candidates([])
 	var landed := npc.position() + Vector3(0.5, 0, 0)
@@ -609,7 +637,6 @@ func _test_brain_perception() -> void:
 		spawner.tick(1.0 / 60.0)
 	_check(not brain.in_danger(), "and the danger is over when it is over")
 
-	# --- Turning -------------------------------------------------------------
 	var turner := DotNpcAiCharacter.normal()
 	turner.view_turn_deg = 90.0
 	turner.view_factor = 1.0
@@ -626,7 +653,8 @@ func _test_brain_perception() -> void:
 		"%.2f deg in one tick at 90 deg/s" % turned
 	)
 
-	# --- Prediction ----------------------------------------------------------
+
+func _perception_prediction(spawner: DotNpcSpawner, npc: DotNpcInstance, brain: DotNpcAiBrain, board: DotNpcAiSounds, ctx: DotNpcAiContext, hidden: StringName) -> void:
 	brain.memory.clear()
 	var tactical := DotNpcAiCharacter.nightmare()
 	tactical.memory_time = 6.0
@@ -648,8 +676,3 @@ func _test_brain_perception() -> void:
 		"and a tactical NPC looks for it where it was going, not where it was",
 		"%.1f m ahead of the last sighting" % (goal.x - runner.x)
 	)
-
-	_world.remove_child(spawner)
-	spawner.free()
-	floor_body.queue_free()
-	_done()

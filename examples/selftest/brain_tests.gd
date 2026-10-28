@@ -678,18 +678,8 @@ func _test_crowd_separation() -> void:
 	var spawner := _spawner()
 	var goal := Vector3(0, 0, -30)
 
-	# Twelve zombies on a ring, all sent at one point — which is a horde arriving at a
-	# door, and the case dot-npc alone has nothing to say about.
-	#
-	# Deliberately NOT stacked in one spot: twelve CharacterBody3Ds spawned inside each
-	# other cannot depenetrate and none of them moves at all, which is a test of
-	# Godot's collision resolution rather than of separation. `spawn_group` is the
-	# addon's own answer and is what a director would call.
-	# A floor, because a CharacterBody3D with nothing under it falls at 9.8 m/s² and
-	# `steer_toward` applies gravity by design. The first version of this test measured
-	# a 3D distance to the goal on twelve bodies in free fall and reported that none of
-	# them had arrived: after four seconds they were 78 metres BELOW the goal and about
-	# fourteen from it horizontally, which is exactly where they should have been.
+	# Twelve zombies on a ring sent at one point, a horde at a door. Not stacked (bodies spawned
+	# inside each other cannot depenetrate), and on a floor (`steer_toward` applies gravity).
 	var floor_body := StaticBody3D.new()
 	var floor_shape := CollisionShape3D.new()
 	var floor_box := BoxShape3D.new()

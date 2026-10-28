@@ -46,10 +46,8 @@ func _run() -> void:
 	}
 	cat.add(soldier)
 
-	# TRACE_KIND=gunner: two of the gunner fixture instead. One takes the squad's flank role
-	# and goes round; the other holds the front. "Behind" is away from the nearest attacker,
-	# and a gunner is not an attacker, so the trace also shows what flanking does with no
-	# melee in front — it goes round by the player's own movement.
+	# TRACE_KIND=gunner: two gunners, one flanking and one holding the front; a gunner is not an
+	# attacker, so this shows what flanking does with no melee in front.
 	var gunner := DotNpcDef.make(&"gunner", "res://fixtures/npc_body.tscn")
 	gunner.brain_script_path = "res://fixtures/gunner_brain.gd"
 	gunner.require_line_of_sight = false

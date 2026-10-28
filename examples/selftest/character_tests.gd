@@ -1,4 +1,4 @@
-extends "res://examples/selftest/selftest_base.gd"
+extends "res://examples/selftest/steering_tests.gd"
 
 ## Decorator, random-selector and character sections.
 

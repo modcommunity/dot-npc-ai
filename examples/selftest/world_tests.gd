@@ -40,9 +40,21 @@ func _test_squad_on_real_npcs() -> void:
 	_world.remove_child(spawner)
 	spawner.free()
 
-	# --- Slots, the ring, and the next one stepping in ---------------------------------
 	var spawner2 := _spawner()
 	DotNpcAiSquads.new().attach(spawner2)
+	_squad_ring(spawner2)
+
+
+	_squad_cover(spawner2)
+
+
+	_world.remove_child(spawner2)
+	spawner2.free()
+	floor_body.queue_free()
+	_done()
+
+
+func _squad_ring(spawner2: DotNpcSpawner) -> void:
 
 	var player := Vector3(0, 0, -12)
 	var soldiers: Array[DotNpcInstance] = []
@@ -99,7 +111,8 @@ func _test_squad_on_real_npcs() -> void:
 			next += 1
 	_check(next == 1, "and when the attacker falls, the next one steps in")
 
-	# --- Cover, one NPC per spot -----------------------------------------------------
+
+func _squad_cover(spawner2: DotNpcSpawner) -> void:
 	var builder := DotNpcNavBuilder.new()
 	builder.spacing = 2.0
 	builder.add_floor(AABB(Vector3(-12, 0, -12), Vector3(24, 0, 24)), 0.0)
@@ -119,11 +132,6 @@ func _test_squad_on_real_npcs() -> void:
 	_check(covers, "with its wall between it and the threat", "spot %s" % str(first))
 	_check(second != Vector3.INF and second.distance_to(first) > 0.5,
 		"and its squadmate takes a different spot rather than the same one")
-
-	_world.remove_child(spawner2)
-	spawner2.free()
-	floor_body.queue_free()
-	_done()
 
 
 func _test_heatmap() -> void:
@@ -237,6 +245,15 @@ func _test_ranged_and_roles() -> void:
 	_check(other.claim_role(DotNpcAiBrain.ROLE_SUPPRESS, 1) and holder.npc.target_id == &"q",
 		"and a new target lets go of every role on the old one")
 
+	_ranged_aim_facing_gunner(spawner, a, b, ba)
+
+	_ranged_patrol()
+
+	floor_body.queue_free()
+	_done()
+
+
+func _ranged_aim_facing_gunner(spawner: DotNpcSpawner, a: DotNpcInstance, b: DotNpcInstance, ba: DotNpcAiBrain) -> void:
 	# Aim. A nightmare leads a runner by what it SAW of them.
 	var shooter := DotNpcAiCharacter.nightmare()
 	shooter.aim_accuracy = 1.0
@@ -291,6 +308,8 @@ func _test_ranged_and_roles() -> void:
 	_world.remove_child(spawner)
 	spawner.free()
 
+
+func _ranged_patrol() -> void:
 	# Patrolling what players use.
 	var spawner2 := _spawner()
 	var heat := DotNpcAiHeatmap.new()
@@ -315,8 +334,6 @@ func _test_ranged_and_roles() -> void:
 
 	_world.remove_child(spawner2)
 	spawner2.free()
-	floor_body.queue_free()
-	_done()
 
 
 ## The one cvar shape [method DotNpcAiNavAnnotator.read_cvars] reads (`name`, `get_string`),
@@ -411,6 +428,17 @@ func _test_nav_annotations() -> void:
 		if _within(spot["at"], NavToy.ROOM) and (spot["at"] as Vector3).y < 0.6:
 			in_room = true
 	_check(in_room, "a hiding place inside the closed room")
+	_nav_checks_kinds(a, mesh, job)
+
+	_nav_checks_data(a, mesh, level, job, key)
+
+	_nav_checks_cvars(mesh, level, key)
+
+	level.queue_free()
+	_done()
+
+
+func _nav_checks_kinds(a: DotNpcAiNavAnnotations, mesh: NavigationMesh, job: DotNpcAiNavAnnotator) -> void:
 	# The bake walks the floor inside a solid block tall enough to stand in; that floor is
 	# left out of what watchers, routes and spots are drawn from.
 	var in_solid := 0
@@ -447,6 +475,8 @@ func _test_nav_annotations() -> void:
 		"and none standing there")
 	_check(not behind.is_empty() and (behind["normal"] as Vector3).x < -0.5, "a spot's normal points away from its wall")
 
+
+func _nav_checks_data(a: DotNpcAiNavAnnotations, mesh: NavigationMesh, level: Node3D, job: DotNpcAiNavAnnotator, key: String) -> void:
 	# Kept as data: a round trip, a file, and the ways a file is refused.
 	var back := DotNpcAiNavAnnotations.from_dict(JSON.parse_string(JSON.stringify(a.to_dict())))
 	# Stats are the run's measurements and come back as JSON numbers (floats); the rest is exact.
@@ -489,6 +519,8 @@ func _test_nav_annotations() -> void:
 	else:
 		_check(false, "and gives exactly what one go gives")
 
+
+func _nav_checks_cvars(mesh: NavigationMesh, level: Node3D, key: String) -> void:
 	# What a game adds, and what a server tunes.
 	var declared := _annotator(mesh, level)
 	declared.declare(Vector3(-18, 0.2, -13), Vector3(18, 0.2, 13), DotNpcAiNavAnnotations.LINK_TELEPORT, 2.0)
@@ -509,9 +541,6 @@ func _test_nav_annotations() -> void:
 	_check(is_equal_approx(tuned.jump_up, 0.5) and is_equal_approx(tuned.drop_max, 6.0), "and read into an annotator")
 	var short: DotNpcAiNavAnnotations = tuned.run_to_completion().value
 	_check(short.links_of(DotNpcAiNavAnnotations.LINK_JUMP_UP).is_empty(), "where a half-metre jump links no jump up onto the platform")
-
-	level.queue_free()
-	_done()
 
 
 ## No one step of the annotator may be longer than the budget it is given: a server steps it

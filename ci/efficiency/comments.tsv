@@ -2,8 +2,7 @@
 # Baselines only shrink: scripts/<gate> --update lowers or drops entries and refuses to add.
 addons/dot_npc_ai/annotate/dot_npc_ai_nav_annotations.gd::banner	1
 addons/dot_npc_ai/annotate/dot_npc_ai_nav_annotations.gd::long_block	2
-addons/dot_npc_ai/annotate/dot_npc_ai_nav_annotator.gd::banner	9
-addons/dot_npc_ai/annotate/dot_npc_ai_nav_annotator.gd::long_block	5
+addons/dot_npc_ai/annotate/dot_npc_ai_nav_annotator.gd::long_block	1
 addons/dot_npc_ai/annotate/dot_npc_ai_nav_debug.gd::long_block	1
 addons/dot_npc_ai/core/dot_npc_ai_blackboard.gd::long_block	5
 addons/dot_npc_ai/core/dot_npc_ai_character.gd::banner	5
@@ -38,12 +37,9 @@ addons/dot_npc_ai/tree/dot_npc_ai_random.gd::long_block	5
 addons/dot_npc_ai/tree/dot_npc_ai_selector.gd::history	1
 addons/dot_npc_ai/tree/dot_npc_ai_selector.gd::long_block	1
 addons/dot_npc_ai/tree/dot_npc_ai_sequence.gd::long_block	2
-examples/npc_ai_selftest.gd::banner	1
 examples/npc_ai_selftest.gd::long_block	2
-examples/selftest/brain_tests.gd::long_block	4
-examples/selftest/skill_tests.gd::banner	8
+examples/selftest/brain_tests.gd::long_block	3
 examples/selftest/skill_tests.gd::long_block	2
-examples/selftest/world_tests.gd::banner	2
 examples/selftest/world_tests.gd::long_block	1
 fixtures/gunner_brain.gd::long_block	1
 fixtures/nav_toy_level.gd::long_block	3
@@ -51,4 +47,4 @@ fixtures/searcher_brain.gd::long_block	1
 fixtures/zombie_brain.gd::long_block	2
 tools/annotate_map.gd::long_block	1
 tools/trace_surround.gd::commented_code	1
-tools/trace_surround.gd::long_block	2
+tools/trace_surround.gd::long_block	1
