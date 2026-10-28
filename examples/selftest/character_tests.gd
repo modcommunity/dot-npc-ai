@@ -72,6 +72,11 @@ func _test_more_decorators() -> void:
 	)
 	_check(laps.size() == 3, "having run it three times")
 
+	_decorators_chance()
+	_done()
+
+
+func _decorators_chance() -> void:
 	# The same decision on the same tick must come out the same way twice, or a replay
 	# and the server that recorded it disagree about what an NPC did.
 	var coin := DotNpcAiDecorator.RandomChance.new(
@@ -118,7 +123,6 @@ func _test_more_decorators() -> void:
 	probe.advance(0.1)
 	_check(never.tick(probe) == DotNpcAiNode.Status.FAILURE, "a chance of zero never runs")
 	_check(always.tick(probe) == DotNpcAiNode.Status.SUCCESS, "and one of one always does")
-	_done()
 
 
 func _test_random_selector() -> void:
@@ -182,6 +186,11 @@ func _test_random_selector() -> void:
 		"and a lighter one is still picked"
 	)
 
+	_random_selector_resume(children)
+	_done()
+
+
+func _random_selector_resume(children: Array[DotNpcAiNode]) -> void:
 	# The rule the whole addon is built on, reached from the one direction where it is
 	# tempting to break it: a chosen child that returns RUNNING is resumed, not
 	# re-rolled out of existence next tick.
@@ -227,7 +236,6 @@ func _test_random_selector() -> void:
 		negative.weight_of(0) == 0.0,
 		"a negative weight is clamped, not left to break the total the roll is scaled to"
 	)
-	_done()
 
 
 
@@ -266,15 +274,13 @@ func _test_character() -> void:
 		"a reaction time of zero reacts at once, for a scripted NPC"
 	)
 
-	# [b]THE gate, against the field it is actually measured from.[/b] `has_reacted()` on
-	# the brain used `DotNpcInstance.engaged_at`, which dot-npc refreshes on EVERY pass in
-	# which the target is perceived — so it was false for ever for any NPC that could
-	# currently see somebody, which is every NPC that would ever act on one. Every branch
-	# behind it never ran and nothing errored: a bot that never acts on what it sees looks
-	# like a bot that is bad rather than like one that is broken.
-	#
-	# `target_since` was added to dot-npc for this. It moves when the target CHANGES and
-	# not while it is held, and the check below is the difference stated as a number.
+	_character_gate(normal, worst)
+	_done()
+
+
+func _character_gate(normal: DotNpcAiCharacter, worst: DotNpcAiCharacter) -> void:
+	# The gate is measured from `target_since` (moves when the target changes), not
+	# `engaged_at`, which is refreshed every pass and so is false for ever while a target is seen.
 	var instance := DotNpcInstance.new()
 	instance.def = DotNpcDef.make(&"x", "res://fixtures/npc_body.tscn")
 	instance.target_id = &"somebody"
@@ -329,7 +335,6 @@ func _test_character() -> void:
 	var seeded := normal.with_seed(4242)
 	_check(seeded.seed_value == 4242, "a character can be reseeded")
 	_check(normal.seed_value != 4242, "without touching the preset it came from")
-	_done()
 
 
 func _test_character_aim() -> void:
@@ -368,6 +373,11 @@ func _test_character_aim() -> void:
 		"a hitscan shot leads by nothing, because it arrives instantly"
 	)
 
+	_character_aim_scatter(from, target)
+	_done()
+
+
+func _character_aim_scatter(from: Vector3, target: Vector3) -> void:
 	# The half-moon check. dot-combat shipped a mixer that never returned above 0.5,
 	# so every shotgun pattern sat on one side of the aim — and a maximum-magnitude
 	# check passes for a half-moon. A quadrant check does not.
@@ -420,6 +430,10 @@ func _test_character_aim() -> void:
 		"two NPCs with different seeds miss differently: twenty sharing one is a volley"
 	)
 
+	_character_view()
+
+
+func _character_view() -> void:
 	# A view that can turn at any speed snaps round in one tick and is unplayable.
 	var slow := DotNpcAiCharacter.new()
 	slow.view_turn_deg = 90.0
@@ -463,4 +477,3 @@ func _test_character_aim() -> void:
 
 	throttled.fire_throttle = 0.0
 	_check(not throttled.should_fire(1), "and an empty one never does")
-	_done()

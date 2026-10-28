@@ -4,7 +4,7 @@
 
 Read the family [CLAUDE.md](../../CLAUDE.md) first; this file is only what is specific to NPC decisions. The reasoning is in [docs/](docs/README.md).
 
-**Depends on dot-core and dot-npc, and only one file names dot-npc** (`runtime/dot_npc_ai_brain.gd`). Keep it that way: the decision engine is meant to be liftable. [decisions](docs/decisions.md#why-it-is-a-separate-addon)
+**Depends on dot-core and dot-npc, and only the brain names dot-npc** (`runtime/dot_npc_ai_brain.gd` and the `dot_npc_ai_brain_state.gd` base it extends, which holds its fields and constants; edit state there, behaviour in the brain). Keep it that way: the decision engine is meant to be liftable. [decisions](docs/decisions.md#why-it-is-a-separate-addon)
 
 ## Read before
 
@@ -28,6 +28,7 @@ Read the family [CLAUDE.md](../../CLAUDE.md) first; this file is only what is sp
 | `addons/dot_npc_ai/runtime/` | `DotNpcAiBrain`: the one file that joins this to dot-npc; `DotNpcAiScheduler`, the opt-in level-of-detail time-slicer ([scheduler](docs/scheduler.md)); `DotNpcAiAvoidance`, opt-in local avoidance for crowds ([avoidance](docs/avoidance.md)) |
 | `addons/dot_npc_ai/annotate/` | `DotNpcAiNavAnnotator` (a `DotJob` over a `NavigationMesh` and a `World3D`), `DotNpcAiNavAnnotations` (the result, saved per cache key), `DotNpcAiNavDebug` (draws it) |
 | `addons/dot_npc_ai/dot_npc_ai_api.gd` | the API level (2: map annotations), preloaded by path like every addon's |
+| `examples/selftest/` | the suite's layers, each extending the one before: `selftest_base`, `character_tests`, `conditions_tests`, `brain_tests`, `skill_tests`, `world_tests`; `npc_ai_selftest.gd` is the top and `_run` order |
 | `fixtures/nav_toy_level.gd` | a level built in code with one of everything the annotator looks for, and the bake DotBotNav would do |
 | `tools/annotate_map.gd` | annotates the toy or a saved map (`--source map.res --meta map_meta.json`), prints counts and the slowest slice, photographs it (`--out PREFIX`, under xvfb-run) |
 | `examples/npc_ai_scheduler_selftest.tscn` | the scheduler's suite: tiers, stagger, the budget under 1000 fake brains, the cost before and after |

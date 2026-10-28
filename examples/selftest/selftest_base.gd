@@ -43,9 +43,7 @@ func _context() -> DotNpcAiContext:
 
 ## A leaf that returns RUNNING for [param ticks] ticks, then SUCCESS, and counts.
 ##
-## Counters live in an Array because a GDScript lambda captures locals BY VALUE, so a
-## plain int incremented inside one stays zero outside it — and a suite built on that
-## reports a failure for a node that ran perfectly.
+## Counters live in an Array because a lambda captures locals by value.
 func _counting(ticks: int, log_into: Array, tag: String) -> DotNpcAiLeaf.Action:
 	var state := {"left": ticks}
 

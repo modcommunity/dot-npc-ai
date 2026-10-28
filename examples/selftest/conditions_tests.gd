@@ -212,6 +212,11 @@ func _test_squad() -> void:
 
 	# Both pull paths (a short stretch of log walked by row, a long one by enemy) give what a
 	# brute-force reading of the same reports gives, in the same order, at 100 enemies.
+	_squad_reports()
+	_done()
+
+
+func _squad_reports() -> void:
 	var crowd := DotNpcAiSquad.new(&"crowd")
 	crowd.pull_reports = true
 	var maker := FakeMember.new()
@@ -272,7 +277,6 @@ func _test_squad() -> void:
 	var registry := DotNpcAiSquads.new()
 	_check(registry.squad(&"x") == registry.squad(&"x"), "one name is one squad")
 	_check(registry.prune() == 1, "and an empty one is pruned")
-	_done()
 
 
 func _test_tactics() -> void:
