@@ -14,13 +14,13 @@ extends "res://examples/selftest/conditions_tests.gd"
 ## selector aborts the branch it took over from, and that a repeater with a synchronous
 ## child does not hang the process.
 
-const CHECKS := 458
+const CHECKS := 464
 
 ## Sections entered against sections that ran to their last line, and against this. A
 ## runtime error inside a section aborts that function and nothing says so; a section that
 ## bailed out early after a failed guard is counted as not finished on purpose. The CHECKS
 ## total is the other half — see docs/testing.md.
-const SECTIONS := 43
+const SECTIONS := 44
 
 
 func _ready() -> void:
@@ -65,6 +65,7 @@ func _run() -> void:
 	_test_server_skill()
 	_test_reaction_jitter()
 	_test_humanising()
+	_test_humanised_leaves()
 	_test_brain_under_a_skill()
 	_test_conditions()
 	_test_memory()
@@ -1729,6 +1730,61 @@ func _test_humanising() -> void:
 	skill.set_cvar("npc_humanise", "0")
 	var zero := skill.apply(on)
 	_check(zero.overshoot == 0.0 and zero.track_lag == 0.0 and zero.strafe_jitter == 0.0 and zero.glance == 0.0 and zero.hesitate == 0.0 and zero.hurt_delay == 0.0, "npc_humanise 0 turns all six off")
+	_done()
+
+
+func _test_humanised_leaves() -> void:
+	_section("humanising reaches hold_off (hesitate) and search (glance)")
+
+	var gd := GDScript.new()
+	gd.source_code = "extends Node\nfunc candidate_position(_id):\n\treturn Vector3(0, 0, -10)\n"
+	gd.reload()
+	var director: Node = gd.new()
+	add_child(director)
+	var body := Node3D.new()
+	add_child(body)
+	var inst := DotNpcInstance.new()
+	inst.def = DotNpcDef.make(&"x", BODY)
+	inst.node = body
+	inst.alive = true
+	inst.target_id = &"somebody"
+	inst.target_since = 5.0
+
+	var brain := DotNpcAiBrain.new()
+	brain.npc = inst
+	brain.director = director
+	brain.blackboard = DotNpcAiBlackboard.new()
+	brain.context = DotNpcAiContext.make(inst, brain, brain.blackboard)
+	brain.squad = DotNpcAiSquad.new()
+	brain.squad.tokens.enabled = true
+	var ch := DotNpcAiCharacter.normal().with_seed(5)
+	ch.hesitate = 2.0
+	ch.reaction_jitter = 0.0
+	brain.character = ch
+	brain.context.now = 5.0
+	brain.context.delta = 0.016
+
+	_check(ch.is_hesitating(5.0, 5.0), "the character is hesitating at the moment of the sighting")
+	_check(brain.hold_off(brain.context, 3.0) == DotNpcAiNode.Status.RUNNING, "hold_off with tokens on holds (running) while hesitating")
+	_check(body.global_position.is_equal_approx(Vector3.ZERO), "and does not move")
+	ch.hesitate = 0.0
+	_check(not ch.is_hesitating(5.0, 5.0), "hesitate 0 does not hold it, so hold_off goes on to pick a place")
+
+	# search(): the look-round gains the glance offset, so it differs from the plain sweep.
+	var glancing := DotNpcAiCharacter.normal().with_seed(5)
+	glancing.glance = 1.0
+	var t_glance := -1.0
+	for i in range(2000):
+		if glancing.glance_offset(float(i) * 0.05) != 0.0:
+			t_glance = float(i) * 0.05
+			break
+	_check(t_glance >= 0.0, "a glancing character looks aside at some time", "%.2f" % t_glance)
+	var src := FileAccess.get_file_as_string("res://addons/dot_npc_ai/runtime/dot_npc_ai_brain.gd")
+	_check(src.contains("glance_offset(ctx.now)"), "search() adds the glance to its sweep")
+
+	brain.unbind()
+	body.free()
+	director.free()
 	_done()
 
 

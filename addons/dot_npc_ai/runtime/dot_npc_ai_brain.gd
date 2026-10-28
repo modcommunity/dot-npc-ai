@@ -942,7 +942,8 @@ func search(ctx: DotNpcAiContext, speed: float, spacing: float = 1.6) -> DotNpcA
 	# A sweep of about seventy degrees each way. Facing, not moving: the sight cone is what
 	# finds somebody, and the cone points where the NPC faces.
 	var heading := blackboard.get_float(KEY_SEARCH_HEADING, ctx.now, 0.0)
-	face(DotNpcAiSteering.angle_to_direction(heading + sin(looked * 2.2) * 1.2))
+	var glance_yaw := character.glance_offset(ctx.now) if character != null else 0.0
+	face(DotNpcAiSteering.angle_to_direction(heading + sin(looked * 2.2) * 1.2 + glance_yaw))
 
 	return DotNpcAiNode.Status.RUNNING
 

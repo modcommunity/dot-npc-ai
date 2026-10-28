@@ -334,6 +334,10 @@ static func hold_off(
 	if center == Vector3.INF:
 		return DotNpcAiNode.Status.FAILURE
 
+	if b.character != null and b.character.is_hesitating(b.npc.target_since, ctx.now):
+		b.halt()
+		return DotNpcAiNode.Status.RUNNING
+
 	var here := b.npc.position()
 	var allies: Array = []
 
