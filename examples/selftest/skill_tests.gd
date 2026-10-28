@@ -191,7 +191,7 @@ func _test_humanised_leaves() -> void:
 			t_glance = float(i) * 0.05
 			break
 	_check(t_glance >= 0.0, "a glancing character looks aside at some time", "%.2f" % t_glance)
-	var src := FileAccess.get_file_as_string("res://addons/dot_npc_ai/runtime/dot_npc_ai_brain.gd")
+	var src := FileAccess.get_file_as_string("res://addons/dot_npc_ai/runtime/dot_npc_ai_brain_tactics.gd")
 	_check(src.contains("glance_offset(ctx.now)"), "search() adds the glance to its sweep")
 
 	brain.unbind()
