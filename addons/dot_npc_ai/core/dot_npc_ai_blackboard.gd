@@ -1,26 +1,12 @@
 class_name DotNpcAiBlackboard
 extends RefCounted
 
-## What one NPC knows, as keyed values. The memory a tree or a machine works over.
-##
-## [b]Per NPC, not shared, and that is the whole design.[/b] A shared blackboard is how
-## a squad communicates and it is also how one zombie's target becomes ninety zombies'
-## target — so this one is private and [member parent] is the explicit opt-in to a
-## shared layer above it. A read falls through to the parent; a write never does.
-##
-## [b]Values expire.[/b] "I last saw the player at that corner" is the single most
-## useful thing an NPC can know and the single most dangerous thing to keep: an NPC
-## remembering a five-minute-old sighting walks to a corner nobody has been near since
-## the round started. Every write may carry a lifetime, and a read past it is a miss.
-##
-## Times are simulated seconds, supplied by the caller. Never a wall clock: an NPC's
-## memory must be the same on a server that stalls for a second as on one that does not.
+## What one NPC knows, as keyed values: the memory a tree or machine works over, in simulated seconds from the caller (never a wall clock, so a stalled server remembers the same).
+## [b]Per NPC, not shared:[/b] a shared board turns one zombie's target into ninety zombies' target, so [member parent] is the explicit opt-in to a shared layer (reads fall through, writes never do).
+## [b]Values expire:[/b] a five-minute-old sighting sends an NPC to a corner nobody has been near, so a write may carry a lifetime and a read past it is a miss.
 
 ## Read-through fallback: a squad's board, a director's board, a game's.
-##
-## [b]Never written through.[/b] An NPC that could write to its squad's board turns one
-## NPC's mistaken sighting into the squad's belief, and every NPC in this family is
-## capable of a mistaken sighting.
+## [b]Never written through:[/b] one NPC's mistaken sighting would become the squad's belief.
 var parent: DotNpcAiBlackboard = null
 
 ## Key -> {"value": Variant, "expires_at": float, "written_at": float}.
@@ -49,31 +35,15 @@ func get_value(key: StringName, now: float = 0.0, fallback: Variant = null) -> V
 		if expires <= 0.0 or now < expires:
 			return entry["value"]
 
-		# Removed on read rather than swept.
-		#
-		# A sweep needs somebody to call it every tick for every NPC, which is a pass
-		# over ninety dictionaries to delete things nobody was going to look at. Expiry
-		# on read costs nothing and is exact.
+				# Removed on read rather than swept: a sweep is a pass over ninety dictionaries every tick to
+				# delete things nobody would look at, and expiry on read is free and exact.
 		_entries.erase(key)
 
 	return parent.get_value(key, now, fallback) if parent != null else fallback
 
 
 ## Whether [param key] is present and unexpired. Falls through to [member parent].
-##
-## [b]Asked structurally rather than by comparing against a sentinel value.[/b] The
-## first version returned `get_value(key, now, _MISSING) != _MISSING`, which is the
-## textbook trick and does not work in GDScript: **`!=` between two mismatched Variant
-## types is a runtime ERROR, not `true`.** Measured on 4.7.2 —
-## `Vector3.ZERO != some_string_name` pushes
-## `Invalid operands 'Vector3' and 'StringName' in operator '!='` and abandons the
-## expression, so `has()` answered false for every value that was not a StringName. It
-## was invisible in a suite that greps its own output, and it would have been invisible
-## on a server.
-##
-## Comparing against `null` instead would be no better for the reason the sentinel
-## existed: `null` is a value a caller may legitimately have stored, and `has` must not
-## lie about it.
+## Asked structurally, not by comparing with a sentinel: `!=` between mismatched Variant types is a runtime ERROR in GDScript (`Vector3.ZERO != &"x"`), and `null` may be a stored value.
 func has(key: StringName, now: float = 0.0) -> bool:
 	var found: Variant = _entries.get(key)
 
@@ -97,9 +67,7 @@ func clear() -> void:
 
 
 ## Simulated seconds since [param key] was written, or -1 when it is not there.
-##
-## What "how long since I last saw anybody" is asked with, and the reason a write
-## records its own time rather than only its expiry.
+## What "how long since I last saw anybody" is asked with, hence a write records its own time.
 func age_of(key: StringName, now: float) -> float:
 	var found: Variant = _entries.get(key)
 

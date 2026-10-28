@@ -43,10 +43,8 @@ func _step_islands() -> void:
 		_next_phase()
 
 
-## Fills [member _kept], the islands spots, watchers and routes are drawn from (see
-## [member seeds], [member reach_only], [member min_island_area]), and drops the links that
-## start anywhere else. Every stage walks a list in order and keeps its state in members, so
-## slicing it cannot change the answer (float sums keep their order). Returns true when done.
+## Fills [member _kept], the islands spots, watchers and routes are drawn from, and drops links that start elsewhere.
+## Every stage walks a list in order and keeps its state in members, so slicing cannot change the answer (float sums keep their order). Returns true when done.
 func _step_keep() -> bool:
 	match _keep_stage:
 		KEEP_AREA:

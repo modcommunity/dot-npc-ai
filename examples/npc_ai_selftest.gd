@@ -1,25 +1,12 @@
 extends "res://examples/selftest/world_tests.gd"
 
-## Proves the tree resumes, the machine cannot spin, and a brain drives a real NPC.
-##
-## [codeblock]
-## godot --headless --path . res://examples/npc_ai_selftest.tscn
-## [/codeblock]
-##
-## [b]The tests that matter are about RUNNING.[/b] Everything else in a behaviour tree
-## is three lines and obviously right; the resume rule is the one almost every
-## hand-written tree gets wrong, and it fails silently — a sequence that restarts its
-## first child every tick has an NPC that looks alive and never finishes anything. So
-## there are checks that a sequence does not re-run a finished child, that a reactive
-## selector aborts the branch it took over from, and that a repeater with a synchronous
-## child does not hang the process.
+## Proves the tree resumes, the machine cannot spin, and a brain drives a real NPC: `godot --headless --path . res://examples/npc_ai_selftest.tscn`.
+## The checks that matter are about RUNNING, which hand-written trees get wrong silently: a sequence does not re-run a finished child, a reactive selector aborts the branch it took over from, a repeater with a synchronous child does not hang.
 
 const CHECKS := 464
 
-## Sections entered against sections that ran to their last line, and against this. A
-## runtime error inside a section aborts that function and nothing says so; a section that
-## bailed out early after a failed guard is counted as not finished on purpose. The CHECKS
-## total is the other half — see docs/testing.md.
+## Sections entered against sections that ran to their last line, and against this. A runtime error aborts a section silently, and one that bailed after a failed guard counts as not finished on purpose.
+## The CHECKS total is the other half; see docs/testing.md.
 const SECTIONS := 44
 
 

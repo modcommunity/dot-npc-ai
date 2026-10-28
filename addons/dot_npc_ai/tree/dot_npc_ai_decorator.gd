@@ -2,10 +2,7 @@ class_name DotNpcAiDecorator
 extends DotNpcAiNode
 
 ## A node with exactly one child, which changes what that child means.
-##
-## The base for the small set below. All of them are three lines each and all of them
-## exist because writing the same three lines into a leaf is how a tree stops being
-## readable.
+## The base for the small set below, each about three lines; written into a leaf instead, the same three lines make a tree unreadable.
 
 var child: DotNpcAiNode = null
 
@@ -42,9 +39,7 @@ class Inverter:
 
 
 ## Always SUCCESS once the child finishes, whatever it finished with.
-##
-## What a sequence step that is allowed to fail is written with. Without it the only way
-## to say "try this, and carry on either way" is a selector with a stub in it.
+## For a sequence step that may fail; without it "try this, and carry on either way" is a selector with a stub in it.
 class Succeeder:
 	extends DotNpcAiDecorator
 
@@ -58,11 +53,7 @@ class Succeeder:
 
 
 ## Refuses to run its child again for [member cooldown] seconds after it finishes.
-##
-## [b]The cooldown starts when the child FINISHES, not when it starts.[/b] Started-from
-## means a long action with a short cooldown can be re-entered before it has ended,
-## which for an attack is a machine gun. Measured in simulated seconds, never a wall
-## clock.
+## Starts when the child FINISHES: from its start, a long action with a short cooldown re-enters before it ends (a machine gun). Simulated seconds, never a wall clock.
 class Cooldown:
 	extends DotNpcAiDecorator
 
@@ -96,11 +87,7 @@ class Cooldown:
 
 
 ## Runs its child up to [member times], failing when the child fails. 0 is for ever.
-##
-## [b]It counts ticks of a child that FINISHED, not ticks of this node.[/b] A repeater
-## that counted its own ticks would run a RUNNING child once per repetition and count
-## every frame of a walk as a repetition, so "do this three times" would be over in
-## three frames.
+## Counts child runs that FINISHED, not its own ticks: counting ticks would make every frame of a walk a repetition.
 class Repeat:
 	extends DotNpcAiDecorator
 
@@ -121,13 +108,9 @@ class Repeat:
 		if child == null:
 			return Status.FAILURE
 
-		# One repetition per tick, not a loop.
-		#
-		# A loop here is an infinite one the first time the child succeeds without
-		# suspending — which is every condition node — and it hangs the server rather
-		# than misbehaving. This is the fan-out trap in a different costume: a thing
-		# that finishes synchronously breaks the construct built for the one that does
-		# not.
+				# One repetition per tick, not a loop: a loop is infinite the first time the child succeeds without
+				# suspending (every condition node), hanging the server. A thing that finishes synchronously breaks
+				# a construct built for one that does not.
 		var status := child.tick(ctx)
 
 		if status == Status.RUNNING:
@@ -164,9 +147,7 @@ class Wait:
 
 
 ## Always FAILURE once the child finishes. The mirror of [Succeeder].
-##
-## What a selector branch that must never be chosen is written with — a probe that runs
-## for its side effect and then hands control to the branch below it.
+## For a selector branch that must never be chosen: a probe that runs for its side effect and hands control to the branch below.
 class Failer:
 	extends DotNpcAiDecorator
 
@@ -179,17 +160,8 @@ class Failer:
 		return Status.RUNNING if status == Status.RUNNING else Status.FAILURE
 
 
-## Abandons a child that has been RUNNING for longer than [member seconds].
-##
-## [b]The one decorator a shipped NPC cannot do without.[/b] Every action that can
-## return RUNNING can get stuck: a walk to a door somebody closed, an attack whose
-## target teleported, a path that leads into a corner. Without a time limit the NPC
-## does that one thing until the world changes, and "the zombie in the corner" is the
-## bug report. With one it fails, the selector above it moves on, and nobody ever files
-## anything.
-##
-## The child is aborted rather than merely abandoned, so whatever it reserved is let go.
-## Measured in simulated seconds.
+## Abandons a child that has been RUNNING for longer than [member seconds] (simulated).
+## Every RUNNING action can get stuck (a closed door, a teleported target, a corner), and without a limit "the zombie in the corner" is the bug report. The child is aborted so whatever it reserved is let go, and the selector above moves on.
 class TimeLimit:
 	extends DotNpcAiDecorator
 
@@ -223,12 +195,7 @@ class TimeLimit:
 
 
 ## Lets its child run at most [member times] times, ever. FAILURE afterwards.
-##
-## [b]Counted for the life of the node, not per entry[/b], which is what "at most once"
-## has to mean: a greeting, a one-off line, a door opened the first time an NPC reaches
-## it. [method reset] is there for a game that reuses a tree across rounds, because the
-## alternative is rebuilding the tree, and a tree rebuilt every round loses every
-## running state in it.
+## Counted for the life of the node, not per entry, which is what "at most once" means (a greeting, a door opened once). [method reset] is for a game reusing a tree across rounds, since rebuilding loses every running state.
 class Limit:
 	extends DotNpcAiDecorator
 
@@ -266,11 +233,8 @@ class Limit:
 		return status
 
 
-## Runs its child over and over until it fails, then SUCCESS.
-##
-## The loop a patrol is written with. One repetition per tick for [Repeat]'s reason: a
-## real loop here never returns when the child succeeds without suspending, and it hangs
-## the server rather than misbehaving.
+## Runs its child over and over until it fails, then SUCCESS. The loop a patrol is written with.
+## One repetition per tick for [Repeat]'s reason: a real loop never returns when the child succeeds without suspending.
 class UntilFail:
 	extends DotNpcAiDecorator
 
@@ -287,14 +251,8 @@ class UntilFail:
 
 
 ## Runs its child only [member chance] of the time. FAILURE the rest.
-##
-## [b]Reproducible, not random.[/b] The roll is a hash of the context's tick index and
-## this node's salt, so a replay and a server rewind agree about what an NPC decided —
-## which [method randf] does not, and which is the difference between a demo that plays
-## back and one that diverges after ninety seconds.
-##
-## The roll happens on entry only: a child that returns RUNNING keeps running rather
-## than being re-rolled out of existence on the next tick.
+## Reproducible, not random: the roll hashes the context's tick index and this node's salt, so a replay and a server rewind agree where [method randf] would diverge after ninety seconds.
+## Rolled on entry only, so a RUNNING child is not re-rolled out of existence next tick.
 class RandomChance:
 	extends DotNpcAiDecorator
 
@@ -326,26 +284,17 @@ class RandomChance:
 		return child.tick(ctx)
 
 
-## Runs its child until one of [member mask]'s conditions appears, then aborts it and fails.
-##
-## [b]The schedule interrupt.[/b] Every long action names what ends it: a search ends on
-## SEE_ENEMY, a wait for an attack slot ends on HEAVY_DAMAGE, a walk to cover ends on
-## HEAR_DANGER. Without it the only way a running action stops is a reactive guard ABOVE
-## it, and that puts every interrupt for every action in one place nobody can read.
-##
-## Checked BEFORE the child ticks, so the child does not take one more step into the
-## thing that should have stopped it — the tick the grenade landed is not a tick to keep
-## walking toward it. Fails rather than succeeding, so a selector above it moves on.
+## Runs its child until one of [member mask]'s conditions appears, then aborts it and fails: the schedule interrupt (a search ends on SEE_ENEMY, a walk to cover on HEAR_DANGER).
+## Without it only a reactive guard ABOVE the action can stop it, putting every interrupt in one unreadable place.
+## Checked BEFORE the child ticks, so it takes no extra step toward the grenade that just landed; fails, so the selector above moves on.
 class Interrupt:
 	extends DotNpcAiDecorator
 
 	var mask: int = 0
 
-	## Interrupts only on a condition that BECAME true, rather than on one that is true.
-	##
-	## Off by default. On is for an action that may legitimately start while the condition
-	## already holds — a flinch entered on LIGHT_DAMAGE must not be interrupted by the very
-	## damage it is reacting to.
+		## Interrupts only on a condition that BECAME true, not one that is true. Off by default.
+		## On is for an action that may start while the condition already holds: a flinch entered on
+		## LIGHT_DAMAGE must not be interrupted by the damage it is reacting to.
 	var only_new: bool = false
 
 	var interrupt_count: int = 0

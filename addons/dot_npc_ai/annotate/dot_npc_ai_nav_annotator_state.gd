@@ -62,13 +62,8 @@ var collision_mask: int = 0xFFFFFFFF
 var exclude: Array[RID] = []
 ## Seed of the watcher and route draws.
 var random_seed: int = 1
-## Where bodies start (spawns and teleport destinations), on or just above the mesh. Islands
-## of the mesh are kept for spots, watchers and routes when a body can get there from one
-## through the mesh and the links; otherwise, unless [member reach_only], when a link touches
-## them or they are at least [member min_island_area]. When the seeds (or, with none, the
-## largest island) are under a roof, islands open to the sky are dropped: on a sealed map
-## they are the top of its shell. What a bake leaves inside a solid brush is small and
-## linkless, and dropped.
+## Where bodies start (spawns, teleport destinations). Islands reachable from one are kept for spots, watchers and routes; others only if a link touches them or they reach [member min_island_area] (unless [member reach_only]).
+## Under a roof, islands open to the sky are dropped (the top of a sealed shell), as is small linkless bake debris inside brushes.
 var seeds: PackedVector3Array = PackedVector3Array()
 ## Keep only what [member seeds] reach. Off by default, because a map crossed by surfing or
 ## a lift is joined by ride links a game declares, and without them most of it is unreached.
@@ -77,11 +72,8 @@ var reach_only: bool = false
 var min_island_area: float = 6.0
 ## Items per [method _step].
 var slice: int = 24
-## Milliseconds one [method _step] may run before it hands the frame back, whatever [member slice]
-## says: the items of a dense map cost ten times those of a sparse one (a 24-sample slice was
-## 40 ms on a large surf map), so a count alone is no budget. A step finishes the item it is on,
-## so it can overrun by one item. Zero turns it off. It changes only where a step ends, never
-## the result, so it is not part of the cache key.
+## Milliseconds one [method _step] may run before yielding, whatever [member slice] says: dense maps cost ten times sparse ones, so a count is no budget. Zero turns it off.
+## Finishes its item (may overrun by one) and changes only where a step ends, so it is not in the cache key.
 var slice_ms: float = 4.0
 
 ## `(from: Vector3, to: Vector3) -> bool`, true when nothing blocks the sight line. Unset,
@@ -213,10 +205,8 @@ static func _key_end(ctx: HashingContext, with: Dictionary) -> String:
 	return ctx.finish().hex_encode()
 
 
-## Registers [constant CVARS] through [param add] (`(name, value, description, flags) ->
-## cvar`, a server's or a console's), returning the cvars made; [method read_cvars] takes
-## their values into an annotator before it runs. A static method, so nothing per map is
-## bound to the console.
+## Registers [constant CVARS] through [param add] (`(name, value, description, flags) -> cvar`), returning the cvars made; [method read_cvars] takes their values into an annotator.
+## Static, so nothing per map is bound to the console.
 static func bind_cvars(add: Callable, flags: int = 0) -> Array:
 	var made: Array = []
 	for spec: Dictionary in CVARS:

@@ -543,10 +543,8 @@ func _nav_checks_cvars(mesh: NavigationMesh, level: Node3D, key: String) -> void
 	_check(short.links_of(DotNpcAiNavAnnotations.LINK_JUMP_UP).is_empty(), "where a half-metre jump links no jump up onto the platform")
 
 
-## No one step of the annotator may be longer than the budget it is given: a server steps it
-## inside a frame, and a step of 40 to 80 ms on a large map was one long tick. The old costs
-## were in the 24-sample outline slices (a dense map's samples cost ten times a sparse one's)
-## and in the one step that kept islands, so the level here is dense and wide.
+## No one step of the annotator may be longer than the budget it is given: a server steps it inside a frame.
+## The level is dense and wide because the cost was in the outline slices (a dense map's samples cost ten times a sparse one's) and the one step that kept islands.
 func _test_nav_annotator_budget() -> void:
 	_section("the annotator keeps every step inside its budget on a large level")
 	var level := NavToy.build_large(12)

@@ -1,23 +1,9 @@
 class_name DotNpcAiHeatKeeper
 extends RefCounted
 
-## Keeps a [DotNpcAiHeatmap] per map: samples players into it, swaps it when the map
-## changes, and saves it so a server keeps learning across restarts.
-##
-## Every game with a heat map writes these forty lines — sample twice a second, save every
-## few minutes and on the way out, load the new map's on a map change and save the old
-## one first — and the one that forgets the last part trains map B on map A's corridors.
-## So they are written once:
-##
-## [codeblock]
-## var heat := DotNpcAiHeatKeeper.new("user://npc_heat", "arena")
-##
-## # every tick, before the spawner thinks:
-## heat.tick(delta, map_id, player_positions, spawner.now(), spawner)
-##
-## # on the way out:
-## heat.save(spawner.now())
-## [/codeblock]
+## Keeps a [DotNpcAiHeatmap] per map: samples players, swaps it on a map change (saving the old one first, or map B trains on map A's corridors) and saves it so a server keeps learning.
+## [codeblock]var heat := DotNpcAiHeatKeeper.new("user://npc_heat", "arena")
+## heat.tick(delta, map_id, player_positions, spawner.now(), spawner)  # every tick; heat.save(spawner.now()) on the way out[/codeblock]
 
 const CHANNEL := "npc.ai.heat"
 
@@ -73,11 +59,7 @@ func tick(
 
 
 ## Saves the current map's heat and loads [param p_map_id]'s.
-##
-## Adopting the map already held reloads it from disk WITHOUT saving first — what a game
-## does when it turns [member persist] on after the map was already adopted with it off.
-## Saving there would overwrite the file with the few seconds learned since, and a server
-## would forget every map it knew on every restart.
+## Adopting the map already held reloads it WITHOUT saving first: saving would overwrite the file with the few seconds learned since [member persist] was switched on.
 func adopt(p_map_id: StringName, now: float, director: Node = null) -> void:
 	if p_map_id != map_id:
 		save(now)

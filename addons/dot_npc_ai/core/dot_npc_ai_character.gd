@@ -2,48 +2,15 @@
 class_name DotNpcAiCharacter
 extends Resource
 
-## Who this NPC is, as numbers: how fast it notices, how well it shoots, how much it
-## wants to fight.
-##
-## [b]This is the part that makes a bot feel like a person, and it is not the decision
-## engine.[/b] A behaviour tree decides [i]what[/i] to do; two NPCs running the same
-## tree with the same tree are the same NPC. The late-1990s arena shooters' bots —
-## still the ones people compare against, twenty-five years on — got their character
-## from a table of characteristics per bot: reaction time, aim accuracy, aim skill,
-## aggression, self preservation, vengefulness, a tendency to camp. This is that table,
-## read out of the open-sourced original and cut down to the parts that are not
-## specific to that engine.
-##
-## What was left out and why:
-##
-## [codeblock]
-## chat characteristics    a game's, and dot-chat's if it wants them
-## weapon-specific aim     dot-combat owns weapons; this has no idea what one is
-## item weights            goal selection is the tree's, not a table's
-## grapple, weapon jumping that engine's movement, not a movement model this family has
-## [/codeblock]
-##
-## [b]Three of these do work rather than describe intent[/b], and they are the reason
-## this is a class instead of a dictionary of numbers a game reads:
-## [method has_reacted] gates acting on what was just seen, [method aim_point] turns a
-## target into somewhere to shoot, and [method turn_view] stops a bot snapping its head
-## round in one tick. Everything else is a weight a tree consults.
-##
-## [codeblock]
-## if not character.has_reacted(npc.target_seen_at, ctx.now):
-##     return Status.RUNNING            # seen, not yet acted on
-##
-## var at := character.aim_point(muzzle, enemy.position, enemy.velocity, 900.0, shot)
-## [/codeblock]
+## Who this NPC is, as numbers: reaction time, aim, aggression and the rest of a per-bot characteristics table, which is what makes two NPCs on one tree different people. Left out: chat, weapon-specific aim, item weights and grapple moves (owned by other addons or specific to one engine).
+## Three do work rather than describe intent: [method has_reacted] gates acting on what was just seen, [method aim_point] turns a target into somewhere to shoot, [method turn_view] stops a head snapping round in one tick. The rest are weights a tree consults.
+## `if not character.has_reacted(npc.target_seen_at, ctx.now): return Status.RUNNING`
 
 # No log channel: a Resource of numbers and the pure functions over them, asked every
 # think by every NPC. validate()/from_dictionary() return a DotResult for the loader.
 
-## The widest an inaccurate shot may miss by, in degrees, at
-## [member aim_accuracy] 0.
-##
-## Twelve degrees is about a body width at fifteen metres. Wider and the worst bot
-## cannot hit anything at all, which reads as broken rather than as bad.
+## The widest an inaccurate shot may miss by, in degrees, at [member aim_accuracy] 0.
+## Twelve degrees is a body width at fifteen metres; wider and the worst bot hits nothing, which reads as broken, not bad.
 const MAX_AIM_ERROR_DEG := 12.0
 
 ## Keeps the mixer in the positive half of a signed 64-bit int. See [method unit].
@@ -56,39 +23,24 @@ const MASK := 0x7FFFFFFFFFFFFFFF
 @export var display_name: String = ""
 
 ## Fixed part of this character's deterministic randomness.
-##
-## [b]Aim error has to be reproducible.[/b] A server rewinding to check a shot, a
-## replay, and a client predicting nothing at all must agree about where an NPC was
-## pointing — and a bot whose error came from [method randf] disagrees with itself
-## between two runs of the same demo. Everything random here is a hash of this, a
-## caller-supplied number, and nothing else.
+## Aim error must be reproducible (a rewinding server, a replay), which [method randf] cannot be: everything random here is a hash of this and a caller-supplied number.
 @export var seed_value: int = 1
 
 @export_group("Perception")
 
 ## Seconds between something becoming visible and this NPC acting on it.
-##
-## [b]The single most important number in the file.[/b] A bot that reacts on the tick
-## it sees you is not hard, it is inhuman — and it is the difference every player can
-## feel and nobody can name. A person is about a quarter of a second; the original's
-## easiest bots are set near a second and a half.
+## The most important number here: reacting on the tick it sees you is inhuman, not hard. A person is about 0.25 s.
 @export_range(0.0, 5.0, 0.01) var reaction_time: float = 0.35
 
 ## How unevenly the reaction varies between sightings; 0 is the plain [member reaction_time].
 @export_range(0.0, 2.0, 0.01) var reaction_jitter: float = 0.3
 
 ## Multiplies the definition's sight range. 1.0 is "as far as the definition says".
-##
-## The original table calls it alertness and uses it for view distance. Scaling rather than
-## replacing, because how far a kind of NPC can see is a property of the kind and how
-## attentive this one is, is a property of the character.
+## A scale, not a replacement: how far a kind can see belongs to the kind, how attentive this one is belongs to the character.
 @export_range(0.1, 2.0, 0.01) var alertness: float = 1.0
 
 ## Seconds a target stays "remembered" after it is lost from sight.
-##
-## Not the same as dot-npc's commitment grace, which decides whether to keep chasing.
-## This decides whether the NPC still believes it knows where the target is, which is
-## what a prediction shot and a search are made of.
+## Not dot-npc's commitment grace (keep chasing?): this decides whether the NPC still believes it knows where the target is, which prediction shots and searches are made of.
 @export_range(0.0, 60.0, 0.1) var memory_time: float = 5.0
 
 @export_group("Aim")
@@ -97,24 +49,15 @@ const MASK := 0x7FFFFFFFFFFFFFFF
 @export_range(0.0, 1.0, 0.01) var aim_accuracy: float = 0.7
 
 ## How much of a moving target's motion is led.
-##
-## 0 aims where the target is, which never hits anything crossing. 1 aims where it
-## will be. Between the two is the interesting range and it is where every bot worth
-## playing against sits: the original's own thresholds are linear leading above 0.4 and
-## exact leading above 0.8.
+## 0 aims where the target is and never hits a crosser; 1 aims where it will be. The interesting range is between.
 @export_range(0.0, 1.0, 0.01) var aim_skill: float = 0.5
 
 ## Fastest the view may turn, in degrees per second.
-##
-## [b]A bot with no limit here snaps its aim in one tick and is unplayable against.[/b]
-## The original's equivalent is a maximum view change per frame; degrees per second is
-## the same idea at a tick rate that is not fixed.
+## With no limit a bot snaps its aim in one tick and is unplayable against; per second, because the tick rate is not fixed.
 @export_range(30.0, 3600.0, 10.0) var view_turn_deg: float = 360.0
 
 ## Fraction of the remaining aim error corrected per second, before the turn limit.
-##
-## Below 1 the aim eases in rather than tracking rigidly, which is what makes a bot
-## look like it is following rather than locked on.
+## Below 1 the aim eases in, so a bot looks like it is following rather than locked on.
 @export_range(0.05, 1.0, 0.01) var view_factor: float = 0.6
 
 ## How far a big turn onto a target swings past it before coming back; 0 is none.
@@ -150,20 +93,12 @@ const MASK := 0x7FFFFFFFFFFFFFFF
 @export_range(0.0, 1.0, 0.01) var camper: float = 0.2
 
 ## How much of the time it is willing to shoot at all.
-##
-## 1 fires whenever it can; lower leaves gaps. It is what stops a line of NPCs sounding
-## like one continuous noise, and it is a weight rather than a rate because the tree
-## decides when a shot is possible.
+## 1 fires whenever it can; lower leaves gaps so a line of NPCs is not one continuous noise. A weight, not a rate, because the tree decides when a shot is possible.
 @export_range(0.0, 1.0, 0.01) var fire_throttle: float = 0.8
 
 ## How much it works with others and thinks ahead, rather than walking straight at you.
-##
-## [b]Not in the original table, and added because it is the gap between an NPC and a
-## squad.[/b] It decides whether this NPC calls out what it sees to its squad, how far it
-## leads a lost target when it goes looking (somewhere the target was heading rather than
-## the spot it was last seen), and how hard it works its way round to your back while it
-## waits for a place in the attack. An NPC at 0 is a brave idiot; one at 1 is the reason a
-## player checks behind them. Ability rather than personality, so the server's skill moves it.
+## It decides whether this NPC calls out sightings to its squad, how far it leads a lost target, and how hard it works round to your back while waiting for an attack slot.
+## Ability, not personality, so the server's skill moves it.
 @export_range(0.0, 1.0, 0.01) var tactics: float = 0.5
 
 @export_group("Movement")
@@ -184,7 +119,6 @@ var _over_axis: Vector3 = Vector3.UP
 var _turns: int = 0
 
 
-# --- Presets ------------------------------------------------------------------
 
 ## The four a game actually ships. Named after what a player would call them.
 static func easy() -> DotNpcAiCharacter:
@@ -233,10 +167,7 @@ static func hard() -> DotNpcAiCharacter:
 
 
 ## As good as this gets, and deliberately not perfect.
-##
-## [b]Reaction time stays above zero and accuracy below one on purpose.[/b] A bot that
-## reacts instantly and never misses is not a harder opponent, it is a different game —
-## and every shooter that shipped one patched it out.
+## Reaction time stays above zero and accuracy below one: an instant, never-missing bot is a different game, not a harder one.
 static func nightmare() -> DotNpcAiCharacter:
 	var out := DotNpcAiCharacter.new()
 	out.id = &"nightmare"
@@ -257,11 +188,7 @@ static func nightmare() -> DotNpcAiCharacter:
 
 
 ## The preset a name means, or [method normal] for one it does not know.
-##
-## For a catalogue: `"skill": "hard"` in a definition's `meta` is the half of a character an
-## operator editing JSON can reach, and every game that offered it wrote this switch.
-## Unknown names are normal rather than an error, because a typo in a catalogue should give
-## an ordinary NPC and not a spawner that refuses to spawn one.
+## For a catalogue's `"skill": "hard"` in a definition's `meta`. Unknown names are normal, not an error: a typo should give an ordinary NPC, not a spawner that refuses to spawn one.
 static func preset(preset_name: String) -> DotNpcAiCharacter:
 	match preset_name.strip_edges().to_lower():
 		"easy":
@@ -274,15 +201,10 @@ static func preset(preset_name: String) -> DotNpcAiCharacter:
 			return normal()
 
 
-# --- Reacting -----------------------------------------------------------------
 
 ## Whether enough time has passed since [param seen_at] for this NPC to act.
-##
-## [param seen_at] is when the NPC committed to the target — dot-npc's
-## [code]DotNpcInstance.target_since[/code], and NOT `engaged_at`, which is refreshed on
-## every pass the target is seen and so never lets a reaction elapse. A negative or zero
-## [member reaction_time] answers true immediately, which is what a scripted NPC in a
-## cutscene wants.
+## [param seen_at] is when the NPC committed to the target (`DotNpcInstance.target_since`), NOT `engaged_at`, which refreshes on every sighting and never lets a reaction elapse.
+## A [member reaction_time] of zero or less answers true at once, for scripted NPCs.
 func has_reacted(seen_at: float, now: float) -> bool:
 	if reaction_time <= 0.0:
 		return true
@@ -375,7 +297,6 @@ func track_velocity(velocity: Vector3, now: float) -> void:
 	_vel_at = now
 
 
-# --- Aiming -------------------------------------------------------------------
 
 ## The widest this character misses by, in radians.
 func aim_error() -> float:
@@ -383,14 +304,8 @@ func aim_error() -> float:
 
 
 ## Where to shoot at a target, leading and error included.
-##
-## [param travel_speed] is how fast whatever is being fired travels; pass 0 for a
-## hitscan weapon, which leads by nothing because it arrives instantly.
-##
-## [param shot_seed] is what makes the error reproducible: the same shot always misses
-## the same way. A caller passes a shot counter, a tick number, anything monotonic —
-## and passing a constant makes every shot miss identically, which is a bug that looks
-## like a scope being off.
+## [param travel_speed] is the projectile's speed; 0 for hitscan, which leads by nothing.
+## [param shot_seed] makes the error reproducible (same shot, same miss): pass a shot counter or tick; a constant makes every shot miss identically.
 func aim_point(
 	from: Vector3,
 	target_position: Vector3,
@@ -403,10 +318,9 @@ func aim_point(
 	if travel_speed > 0.0 and aim_skill > 0.0:
 		var distance := from.distance_to(target_position)
 		var flight := distance / travel_speed
-		# Partial leading rather than a threshold. The original switches leading on above a
-		# skill of 0.4 and exact leading above 0.8; a fraction is the same curve
-		# without two cliffs in it, and a bot at 0.5 that leads half as far as it
-		# should misses behind a runner, which is what a mediocre player does.
+				# Partial leading, not a threshold: a fraction is the same curve as the original's 0.4 and 0.8
+				# cliffs without the cliffs, and a bot at 0.5 leading half as far misses behind a runner
+				# like a mediocre player.
 		var lead := _vel_est if (track_lag > 0.0 and _vel_at >= 0.0) else target_velocity
 		aim += lead * flight * aim_skill
 
@@ -444,9 +358,7 @@ func aim_point(
 
 
 ## Turns [param current] toward [param wanted], no faster than this character can.
-##
-## Both are directions. Returns the new direction, which is [param wanted] once the
-## remaining angle is inside one tick's worth of turning.
+## Both are directions. Returns the new direction, [param wanted] once within one tick's turn.
 func turn_view(current: Vector3, wanted: Vector3, delta: float) -> Vector3:
 	if current.length_squared() <= 0.0001:
 		return wanted
@@ -486,12 +398,9 @@ func turn_view(current: Vector3, wanted: Vector3, delta: float) -> Vector3:
 	var axis := from.cross(to)
 
 	if axis.length_squared() <= 0.000001:
-		# Exactly opposite: the cross is zero and any perpendicular axis turns `from` the
-		# right amount. [b]Not any of them is right, though.[/b] This used `from.cross(UP)`,
-		# which for a level view is a HORIZONTAL axis — so a bot with something directly
-		# behind it tipped its head back a degree a tick instead of turning round, and once
-		# the vertical was flattened away it had not turned at all. Turning round is about
-		# UP, unless the view is itself straight up or down.
+				# Exactly opposite: the cross is zero, so pick an axis. Not `from.cross(UP)`, a HORIZONTAL axis
+				# for a level view, which tipped the head back a degree a tick instead of turning round.
+				# Turn about UP unless the view is itself straight up or down.
 		axis = Vector3.UP if absf(from.dot(Vector3.UP)) < 0.99 else Vector3.RIGHT
 
 	return from.rotated(axis.normalized(), step)
@@ -518,15 +427,9 @@ func should_fire(shot_seed: int) -> bool:
 	return unit(shot_seed ^ 0x27d4eb2f) < fire_throttle
 
 
-# --- Deterministic randomness -------------------------------------------------
 
 ## A reproducible number in [0, 1) from this character's seed and [param salt].
-##
-## [b]The whole range, and the suite checks it.[/b] dot-combat shipped a mixer whose
-## output was shifted and masked down to 23 bits of a 24-bit field, so it never
-## returned a value above 0.5 — every shotgun pattern was a half-moon on one side of
-## the aim and nothing about a maximum-magnitude check could see it. A quadrant check
-## can.
+## Covers the whole range, and the suite checks a quadrant: a mixer that masked to 23 bits of 24 never passed 0.5, which a maximum-magnitude check cannot see.
 func unit(salt: int) -> float:
 	# Kept positive at every step. GDScript ints are signed and `>>` on a negative one
 	# sign-extends, so a mixer that is allowed to go negative shifts ones in from the
@@ -551,7 +454,6 @@ func signed_unit(salt: int) -> float:
 	return unit(salt) * 2.0 - 1.0
 
 
-# --- Housekeeping -------------------------------------------------------------
 
 func validate() -> DotResult:
 	if reaction_time < 0.0:
@@ -645,10 +547,7 @@ static func from_dictionary(data: Dictionary) -> DotResult:
 
 
 ## A copy with its own seed, so twenty NPCs of one preset do not miss identically.
-##
-## [b]Worth calling and easy to forget.[/b] A preset is one resource; handing it to
-## twenty NPCs gives twenty NPCs one seed, and every one of them takes the same shot
-## with the same error at the same moment. It reads as a firing squad.
+## Easy to forget: one preset resource shared by twenty NPCs shares one seed, and they all take the same shot with the same error at once.
 func with_seed(new_seed: int) -> DotNpcAiCharacter:
 	var out: DotNpcAiCharacter = duplicate(true)
 	out.seed_value = new_seed

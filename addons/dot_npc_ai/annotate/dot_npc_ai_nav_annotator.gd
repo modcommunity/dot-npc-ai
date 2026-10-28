@@ -1,56 +1,9 @@
 class_name DotNpcAiNavAnnotator
 extends "dot_npc_ai_nav_annotator_islands.gd"
 
-## Works out a map's [DotNpcAiNavAnnotations] from a baked [NavigationMesh] and the colliders
-## it was baked from: links where a body can drop, jump up or jump across, spots beside walls
-## scored for cover and for being out of sight, and the chokepoints routes crowd through.
-##
-## [b]Any map, no authoring.[/b] Imported maps come with brushes and nothing else, and a
-## bot that only has the walkable mesh walks to the edge of a balcony and stops, because the
-## mesh has no polygon in the air between the balcony and the floor. Everything here is
-## measured from two things every map has once it is loaded: the mesh (where a body stands)
-## and the physics space (what a ray hits).
-##
-## [b]Where the links come from.[/b] The mesh's outline is every edge only one polygon has.
-## Each is sampled about every [member sample_spacing] metres and asked one question with a
-## ray: is there a wall just past it? If so the sample is a place beside a wall, and a hiding
-## or cover candidate. If not it is a ledge, and a ray straight down past it finds what is
-## below: a floor on the mesh within [member drop_max] is a drop (and, when it is no higher
-## than [member jump_up], a jump up the other way); nothing, or nothing on the mesh, is a gap,
-## and points further out to [member gap_max] are tried for a landing a jump would reach with
-## a clear arc. A link a short walk already covers is dropped, and links along one stretch of
-## edge are thinned to one per [member link_spacing].
-##
-## [b]Why not the navigation server's own links or a jump-link baker.[/b] The engine bakes
-## no off-mesh links, and a link it is handed is all it knows; the question of where one
-## belongs is geometric, and asking it of the colliders with rays works on any map, a code
-## built one or an imported one, with no editor step.
-##
-## [b]A job, so it never stops a frame.[/b] It is stepped in slices of [member slice] items,
-## so a [DotScheduler] runs it inside its frame budget on the main thread, which is the only
-## place a physics query may be made and the only place there is in a browser without threads.
-## [method DotJob.run_to_completion] runs it in one go for tools and tests. It is
-## deterministic: the same mesh, colliders, settings and [member random_seed] give the same
-## annotations, so a cached file and a fresh run agree.
-##
-## [codeblock]
-## var job := DotNpcAiNavAnnotator.new(nav.mesh, map.get_world_3d())
-## job.agent_radius = 0.35
-## var cached := DotNpcAiNavAnnotations.load_file("user://nav/%s.json" % job.cache_key(), job.cache_key())
-## if cached.ok:
-##     annotations = cached.value
-## else:
-##     scheduler.submit(job)
-##     var res: DotResult = await job.finished
-##     if res.ok:
-##         annotations = res.value
-##         annotations.save("user://nav/%s.json" % annotations.key)
-## [/codeblock]
-##
-## [b]Subclass or assign.[/b] [member los_fn] replaces the line of sight (a game whose glass
-## or foliage blocks sight but not rays); [method _keep_link] and [method _hide_score] are the
-## two judgements worth overriding; [method declare] adds the links geometry cannot see
-## (ladders, teleports, ride edges).
+## Works out a map's [DotNpcAiNavAnnotations] from a baked [NavigationMesh] and its colliders: links (drop, jump up, jump across), cover and hiding spots, chokepoints.
+## [b]Why rays and not the engine's off-mesh links:[/b] the engine bakes none, and where one belongs is geometric, so rays against the colliders work on any map with no editor step. It is a [DotJob] stepped in slices (physics queries only on the main thread), deterministic for a given mesh, settings and [member random_seed].
+## Subclass or assign: [member los_fn], [method _keep_link], [method _hide_score], [method declare] (ladders, teleports). Usage: docs/navigation-annotations.md.
 
 func _init(mesh: NavigationMesh = null, world: World3D = null) -> void:
 	_mesh = mesh

@@ -1,16 +1,8 @@
 class_name DotNpcAiContext
 extends RefCounted
 
-## Everything one tick of a decision needs, in one object.
-##
-## [b]An object rather than five arguments, because every node in a tree takes it.[/b] A
-## tree fifteen nodes deep passing five arguments is five arguments changed in fifteen
-## places the day a sixth is needed, and behaviour trees always need a sixth.
-##
-## [b]It names nothing from dot-npc.[/b] [member agent] is whatever the host is driving —
-## a [code]DotNpcInstance[/code], a vehicle, a 2D cell — and [member brain] is whatever
-## is driving it. That is what lets the tree in this addon be lifted into anything, and
-## it is why only [DotNpcAiBrain] mentions dot-npc at all.
+## Everything one tick of a decision needs, in one object: every node takes it, and a sixth argument would otherwise change fifteen places.
+## [b]It names nothing from dot-npc:[/b] [member agent] is whatever the host drives and [member brain] whatever drives it, so the tree can be lifted into anything; only [DotNpcAiBrain] mentions dot-npc.
 
 ## What is being decided for. A [code]DotNpcInstance[/code] in the ordinary case.
 var agent: Object = null
@@ -22,11 +14,7 @@ var brain: Object = null
 var blackboard: DotNpcAiBlackboard = null
 
 ## Who this agent is: reaction time, aim, aggression. Null for a character-less NPC.
-##
-## [b]On the context rather than reached through the brain, because every node wants
-## it.[/b] A condition asking "have I reacted yet" and an action asking "where do I
-## aim" are both two levels down a tree, and a tree that has to know what kind of brain
-## is running it is a tree that only runs under one.
+## On the context, not reached through the brain, because a node two levels down a tree must not need to know which brain runs it.
 var character: DotNpcAiCharacter = null
 
 ## What the NPC noticed this tick. Filled by the brain before anything runs, and read by
@@ -72,15 +60,12 @@ func get_value(key: StringName, fallback: Variant = null) -> Variant:
 	return blackboard.get_value(key, now, fallback)
 
 
-## Whether this agent has had time to act on something first seen at [param seen_at].
-##
-## True when there is no character, which is the right answer: an NPC nobody gave a
-## reaction time to does not have one.
 ## Whether any of [param mask] is among this tick's conditions.
 func has_condition(mask: int) -> bool:
 	return conditions.has(mask)
 
 
+## Whether this agent has had time to act on something first seen at [param seen_at]; true with no character (nobody gave it a reaction time).
 func has_reacted(seen_at: float) -> bool:
 	return character == null or character.has_reacted(seen_at, now)
 

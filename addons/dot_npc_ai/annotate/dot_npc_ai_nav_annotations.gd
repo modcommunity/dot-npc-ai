@@ -1,23 +1,9 @@
 class_name DotNpcAiNavAnnotations
 extends RefCounted
 
-## What a map means to somebody walking it, worked out from its navigation mesh and its
-## colliders: where a body can drop, jump up or jump across that the mesh does not join
-## (links), where it can stand out of sight or behind something (spots), and the narrow
-## places most routes go through (chokepoints).
-##
-## [b]Data only.[/b] [DotNpcAiNavAnnotator] fills it; this holds it, serialises it, and
-## answers the few questions every consumer asks. It names no navigation class of any
-## addon: points are [Vector3]s in the map's space, so dot-bot's mesh, dot-npc's graph and a
-## game's own pathing read the same annotations.
-##
-## [b]Cached by [member key].[/b] The key is a digest of the mesh it was made from, the
-## settings it was made with and [constant VERSION]; the same map baked the same way gets
-## the same key on every machine, so [method save] and [method load_file] can keep one file
-## per map and a server that changes to a map it has seen pays nothing.
-##
-## Spots are dictionaries compatible with dot-bot's hiding layer (`at`, `exposure`,
-## `seen_by`), so a game hands [method hiding_spots] straight to its choose step.
+## What a map means to somebody walking it, from its navigation mesh and colliders: links (drops, jumps the mesh does not join), spots (out of sight or behind cover) and chokepoints.
+## [b]Data only, cached by [member key].[/b] [DotNpcAiNavAnnotator] fills it; it names no navigation class, so any pathing reads the same points. The key digests mesh, settings and [constant VERSION], so one file per map serves every machine.
+## Spots are dictionaries compatible with dot-bot's hiding layer (`at`, `exposure`, `seen_by`).
 
 # No log channel: a container. The annotator logs what it found.
 
@@ -49,11 +35,8 @@ var key: String = ""
 ## `{"from": Vector3, "to": Vector3, "kind": int, "cost": float}`, one way each.
 var links: Array[Dictionary] = []
 
-## Every surveyed place beside a wall: `{"at": Vector3 (feet, on the mesh), "normal":
-## Vector3 (away from the wall), "exposure": float 0..1 (share of the map's watchers that
-## see a crouched head there), "seen_by": int, "enclosure": float 0..1 (share of directions
-## blocked close by at a crouched head), "low": int (cover mask at a crouched head),
-## "high": int (cover mask at a standing chest)}`.
+## Every surveyed place beside a wall: `{"at": feet on the mesh, "normal": away from the wall, "exposure": 0..1 share of watchers that see a crouched head,
+## "seen_by": int, "enclosure": 0..1 share of directions blocked close by, "low": cover mask at a crouched head, "high": cover mask at a standing chest}`.
 var spots: Array[Dictionary] = []
 
 ## Indices into [member spots] of the hiding places: low exposure, enclosed, apart.
@@ -132,7 +115,6 @@ func link_counts() -> Dictionary:
 	return out
 
 
-# --- Serialising ----------------------------------------------------------------
 
 func to_dict() -> Dictionary:
 	var l: Array = []

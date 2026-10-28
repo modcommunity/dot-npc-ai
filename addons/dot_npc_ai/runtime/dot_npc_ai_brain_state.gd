@@ -8,12 +8,7 @@ extends DotNpcBrain
 var tree: DotNpcAiNode = null
 
 ## The machine, or null for a game using only the tree.
-##
-## [b]Both may be set, and the tree runs first.[/b] That is the useful combination
-## rather than an oversight: a machine holds what the NPC IS — patrolling, alerted,
-## fleeing — and a tree decides what it does within that. Running the tree first means a
-## reactive branch can write to the blackboard and the machine's transitions see it on
-## the same tick, rather than a tick later.
+## Both may be set and the tree runs first: the machine holds what the NPC IS (patrolling, fleeing), the tree decides what it does within that, and a reactive branch can write the blackboard for the machine's transitions the same tick.
 var machine: DotNpcAiMachine = null
 
 ## This NPC's memory. Built here so a subclass always has one.
@@ -23,18 +18,11 @@ var blackboard: DotNpcAiBlackboard = null
 var context: DotNpcAiContext = null
 
 ## Who this NPC is. Handed to the context, where every node can reach it.
-##
-## [b]Give each NPC its own seed.[/b] A preset is one resource, and twenty NPCs sharing
-## it share a seed — so every one of them takes the same shot with the same error at the
-## same moment, which reads as a firing squad. [method DotNpcAiCharacter.with_seed] is
-## the one call that prevents it, and `_npc_ready` makes it for a brain that did not.
+## Give each NPC its own seed: twenty sharing a preset's seed take the same shot with the same error at once (a firing squad). [method DotNpcAiCharacter.with_seed] prevents it, and `_npc_ready` calls it for a brain that did not.
 var character: DotNpcAiCharacter = null
 
 ## The character as the game made it, before the server's [member skill] moved it.
-##
-## [member character] is the one in force and the one everything reads. This is kept so a
-## change to the server's skill is applied to what was authored rather than to what the
-## LAST change produced — or turning skill up and back down would not come back.
+## [member character] is the one in force. This is kept so a skill change applies to what was authored, not to the last change's result, or turning skill up and back down would not come back.
 var base_character: DotNpcAiCharacter = null
 
 ## The server's adjustment, or null for "as authored". Found on the director — see

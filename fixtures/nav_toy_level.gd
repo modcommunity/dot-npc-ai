@@ -1,13 +1,8 @@
 extends RefCounted
 
-## A small level built in code with one of everything [DotNpcAiNavAnnotator] looks for, at
-## known places, for the suite and for tools/annotate_map.
-##
-## A floor 40 by 30 inside walls, split down x = 0 by a wall with one doorway (a chokepoint
-## every route between the halves crosses). West: a low platform (jump up and drop), a high
-## balcony (drop only) and a low wall (cover crouched, not standing). East: two platforms
-## with a two metre gap between them (a jump across) and a closed room with one door (where
-## to hide).
+## A small level built in code with one of everything [DotNpcAiNavAnnotator] looks for, at known places, for the suite and tools/annotate_map.
+## A 40 by 30 floor split by a wall with one doorway (a chokepoint). West: a low platform (jump up, drop), a high balcony (drop only), a low wall (cover crouched, not standing).
+## East: two platforms two metres apart (a jump across) and a closed room with one door (where to hide).
 
 const FLOOR_TOP := 0.0
 const LOW_TOP := 0.9
@@ -52,11 +47,8 @@ static func build() -> Node3D:
 	return root
 
 
-## A large level for timing: a [param cells] by [param cells] field of blocks 5 m on a side,
-## 8 m apart, each a different height between 0.9 and 3.6 m (drops, jump ups and gaps all
-## round), on a floor with a wall round it. Thousands of polygons, hundreds of islands, and
-## every outline sample has a neighbour to look at: what a surf or bhop map is to the
-## annotator, without owning one.
+## A large level for timing: a [param cells] by [param cells] field of 5 m blocks, 8 m apart, each 0.9 to 3.6 m high (drops, jump ups and gaps all round) on a walled floor.
+## Thousands of polygons and hundreds of islands: what a surf or bhop map is to the annotator, without owning one.
 static func build_large(cells: int = 12) -> Node3D:
 	var root := Node3D.new()
 	root.name = "NavLargeLevel"
@@ -73,10 +65,8 @@ static func build_large(cells: int = 12) -> Node3D:
 	return root
 
 
-## The mesh dot-bot's DotBotNav bakes for a body of [param radius] and [param height] that
-## steps [param step], from [param root]'s static colliders (root in the tree). The same
-## numbers as DotBotNav (cell 0.175 by 0.1, the body rounded to whole cells), so what the
-## suite annotates is what a game would.
+## The mesh dot-bot's DotBotNav bakes for a body of [param radius] and [param height] that steps [param step], from [param root]'s static colliders (root in the tree).
+## Same numbers as DotBotNav (cell 0.175 by 0.1, body rounded to whole cells), so the suite annotates what a game would.
 static func bake(root: Node3D, radius: float = 0.35, height: float = 1.8, step: float = 0.4) -> NavigationMesh:
 	var source := NavigationMeshSourceGeometryData3D.new()
 	var mesh := NavigationMesh.new()

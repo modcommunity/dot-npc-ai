@@ -1,17 +1,8 @@
 class_name DotNpcAiNavDebug
 extends Node3D
 
-## Draws a map's [DotNpcAiNavAnnotations] (and, if given, the mesh they were made from) so a
-## person can look at them: links as arrows coloured by kind, hiding spots as tall markers,
-## other spots as small ones, chokepoints as bars as wide as the passage.
-##
-## [b]Looked at, because no assertion reaches it.[/b] A link that lands on the wrong floor or
-## a hiding spot in the middle of a room passes every count. Add this under a map and render
-## a frame, or toggle it from a game's debug console.
-##
-## Drawn unshaded and over the geometry ([member through_walls]) so a link under a floor is
-## still seen. Builds once in [method show_annotations]; it holds no reference to the
-## annotations afterwards.
+## Draws a map's [DotNpcAiNavAnnotations] (and the mesh, if given): links as arrows by kind, hiding spots as tall markers, other spots small, chokepoints as bars as wide as the passage.
+## [b]Looked at, because no assertion reaches it:[/b] a link on the wrong floor passes every count. Unshaded and over the geometry ([member through_walls]); built once in [method show_annotations].
 
 # No log channel: it draws.
 

@@ -2,11 +2,7 @@ class_name DotNpcAiLeaf
 extends DotNpcAiNode
 
 ## The two leaves a game actually writes: a condition and an action.
-##
-## [b]Callables rather than subclasses, for the ordinary case.[/b] A tree is mostly
-## one-line questions — "do I have a target", "is it closer than four metres" — and a
-## class per question is a file per question. A game with a leaf worth naming subclasses
-## [DotNpcAiNode] directly, and that is the same thing this is built on.
+## Callables, not subclasses, for the ordinary case: a tree is mostly one-line questions and a class per question is a file per question. A leaf worth naming subclasses [DotNpcAiNode] directly.
 
 ## SUCCESS when the callable returns true. Never RUNNING: a question has an answer.
 class Condition:
@@ -21,21 +17,15 @@ class Condition:
 
 	func _tick(ctx: DotNpcAiContext) -> Status:
 		if not test.is_valid():
-			# A condition with no test fails rather than succeeding. A tree whose
-			# guards silently pass is a tree where every branch runs, and the resulting
-			# NPC does everything at once — which is much harder to read back to a
-			# missing callable than a branch that never runs.
+						# A condition with no test fails, not succeeds: a tree whose guards silently pass runs every branch
+						# at once, which is harder to trace to a missing callable than a branch that never runs.
 			return Status.FAILURE
 
 		return Status.SUCCESS if bool(test.call(ctx)) else Status.FAILURE
 
 
 ## Runs a callable and returns whatever it returns.
-##
-## The callable may return a [enum DotNpcAiNode.Status] for something that takes several
-## ticks, or a [bool] for something that does not — a bool is the common case and having
-## to write `return DotNpcAiNode.Status.SUCCESS` for "I moved a bit" is the sort of
-## friction that makes people not use the tree.
+## It may return a [enum DotNpcAiNode.Status] for several ticks' work or a [bool] for none; bool is the common case and writing `Status.SUCCESS` for "I moved a bit" is friction that stops people using the tree.
 class Action:
 	extends DotNpcAiNode
 
@@ -62,10 +52,8 @@ class Action:
 			var raw := int(result)
 			return raw as Status if raw >= 0 and raw < Status.size() else Status.SUCCESS
 
-		# A callable that returned nothing did its work and is done. Treating a null as
-		# a failure would make every `func(_ctx) -> void:` action a branch that never
-		# continues, which is the commonest thing to write and would be wrong by
-		# default.
+				# A callable that returned nothing did its work and is done: a null as failure would make every
+				# `func(_ctx) -> void:` action a branch that never continues, the commonest thing to write.
 		return Status.SUCCESS
 
 	func _abort(ctx: DotNpcAiContext) -> void:

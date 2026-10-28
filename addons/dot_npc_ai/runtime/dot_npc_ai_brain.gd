@@ -1,33 +1,9 @@
 class_name DotNpcAiBrain
 extends "dot_npc_ai_brain_state.gd"
 
-## A [DotNpcBrain] that runs a behaviour tree or a state machine. The adapter.
-##
-## [b]This is the ONLY file in dot-npc-ai that names anything from dot-npc.[/b] The tree,
-## the machine, the blackboard and the steering are dot-core-only and could be lifted
-## into a vehicle, a 2D game or a menu; this is the twenty lines that join them to an
-## NPC. That is deliberate, and it is why the split in `nightly-todo.md` asked for two
-## addons rather than one big one.
-##
-## A game subclasses this and builds its decision in [method _build], which is called
-## once when the NPC spawns:
-##
-## [codeblock]
-## extends "res://addons/dot_npc_ai/runtime/dot_npc_ai_brain.gd"
-##
-## func _build() -> void:
-##     tree = DotNpcAiSelector.new(&"root", [
-##         DotNpcAiSequence.new(&"chase", [
-##             DotNpcAiLeaf.Condition.new(&"has target", func(_c): return npc.has_target()),
-##             DotNpcAiLeaf.Action.new(&"walk", _walk),
-##         ]),
-##         DotNpcAiLeaf.Action.new(&"wander", _wander),
-##     ])
-## [/codeblock]
-##
-## [b]Extended by PATH, like every brain.[/b] A script inside a mounted dot-cloud pack
-## cannot resolve a `class_name` — which is the whole reason `brain_script_path` is a
-## path — and a game's brain extending this by name works in a build only.
+## A [DotNpcBrain] that runs a behaviour tree or a state machine. The adapter: the ONLY file in dot-npc-ai that names anything from dot-npc, so the tree, machine, blackboard and steering stay liftable into a vehicle, a 2D game or a menu.
+## A game subclasses it and builds its decision in [method _build] (once, at spawn), e.g. `tree = DotNpcAiSelector.new(&"root", [DotNpcAiSequence.new(&"chase", [...]), DotNpcAiLeaf.Action.new(&"wander", _wander)])`.
+## Extended by PATH, like every brain: a script in a mounted dot-cloud pack cannot resolve a `class_name`, which is why `brain_script_path` is a path.
 
 const _Leaves := preload("dot_npc_ai_brain_leaves.gd")
 
@@ -41,20 +17,15 @@ func _npc_ready() -> void:
 	heatmap = DotNpcAiHeatmap.of(director)
 	attack_capacity = int(tune(&"attackers", float(attack_capacity)))
 
-	# The definition's squad only when it names one. A game that chose the squad before
-	# binding — game-playground puts each player's NPCs in their own — must not have it
-	# wiped by a definition that says nothing, which is what this line used to do.
+		# The definition's squad only when it names one: a game that chose the squad before binding (each
+		# player's NPCs in their own) must not have it wiped by a definition that says nothing.
 	var named_squad := tune_string(&"squad", "")
 	if named_squad != "":
 		squad_name = StringName(named_squad)
 
-	# The world's clock, not zero.
-	#
-	# A brain built ninety seconds into a round with a context starting at zero has
-	# every cooldown, timeout and memory lifetime measured against a clock that
-	# disagrees with the spawner's — so an NPC spawned late is briefly able to do
-	# everything at once, and one spawned early is not. It reads as the cooldowns being
-	# ignored on some NPCs and not others.
+		# The world's clock, not zero: a brain built ninety seconds in with a clock starting at zero measures
+		# cooldowns, timeouts and memory lifetimes against a clock that disagrees with the spawner's, so some
+		# NPCs seem to ignore cooldowns.
 	if director != null and director.has_method(&"now"):
 		context.now = float(director.call(&"now"))
 
@@ -72,9 +43,8 @@ func _npc_ready() -> void:
 
 	_build()
 
-	# Again, for a brain that assigned its character in `_build` — which is too late for
-	# the seeding above and used to leave `ctx.character` null for the whole tree. Noticed
-	# here rather than documented as a trap: two games' brains carry a paragraph about it.
+		# Again, for a brain that assigned its character in `_build`, too late for the seeding above (it left
+		# `ctx.character` null for the whole tree).
 	_refresh_character()
 
 	# After `_build`, so a game may choose the squad there.
@@ -326,10 +296,7 @@ func halt() -> void:
 
 
 ## Being hurt is information, and it arrives here whatever the subclass does with it.
-##
-## [b]Overrides `damaged` rather than `_npc_damaged`, deliberately.[/b] Every game brain
-## overrides the hook and none of them calls `super`, so behaviour put there would be lost
-## in exactly the brains that need it.
+## Overrides `damaged`, not `_npc_damaged`: game brains override the hook without calling `super`, so behaviour there would be lost in the brains that need it.
 func damaged(amount: float, by: StringName) -> void:
 	_hurt_by(by, amount)
 	var sched := _sched()
@@ -339,10 +306,7 @@ func damaged(amount: float, by: StringName) -> void:
 
 
 ## A brain being told its NPC has been abandoned mid-action.
-##
-## An NPC that dies with a tree node RUNNING has to release whatever that node reserved
-## — a door it was holding, a spot in a queue, an animation. Without this the reservation
-## outlives the NPC and nothing ever clears it.
+## An NPC that dies with a tree node RUNNING must release what it reserved (a door, a queue spot, an animation), or the reservation outlives it.
 func _npc_died(_by: StringName) -> void:
 	if tree != null and tree.is_running:
 		tree.abort(context)
@@ -386,32 +350,16 @@ func _build() -> void:
 	pass
 
 
-## Whether this NPC has had time to react to its current target.
-##
-## The gate every "shoot at it" branch belongs behind.
-##
-## [b]Measured from `target_since`, and it used to be `engaged_at`.[/b] Those look like the
-## same thing and are not: `engaged_at` is refreshed on EVERY pass in which the target is
-## perceived — that is what it is for, because it is what a reclaim asks about — so a
-## reaction time measured against it can never elapse for an NPC that can currently see
-## somebody. Which is every NPC that would ever act on one.
-##
-## So this returned **false for ever**, every branch behind it never ran, and nothing
-## errored: a bot that never acts on what it sees looks like a bot that is bad rather than
-## like one that is broken. `DotNpcInstance.target_since` was added to dot-npc for exactly
-## this — it moves when the target CHANGES and not while it is held — and it was found by
-## game-playground putting a brain behind dot-npc's senses and watching a hunter sit in
-## its ALERT state for ever.
+## Whether this NPC has had time to react to its current target. The gate every "shoot at it" branch belongs behind.
+## Measured from `target_since`, not `engaged_at`: `engaged_at` refreshes on every pass the target is perceived, so a reaction time against it never elapses for an NPC that can see someone, every branch behind it never runs and nothing errors.
+## `target_since` moves when the target CHANGES, not while it is held.
 func has_reacted() -> bool:
 	if character == null or npc == null:
 		return true
 	return character.has_reacted(npc.target_since, context.now if context != null else 0.0)
 
 
-## The character in force, worked out again only when something changed.
-##
-## Three things can change it: the game assigned a different one, the server's
-## [member skill] moved, or a skill was attached to the director after this NPC spawned.
+## The character in force, worked out again only when something changed: the game assigned a different one, the server's [member skill] moved, or a skill was attached to the director after spawn.
 ## Each costs one comparison a tick when nothing did.
 func _refresh_character() -> void:
 	if skill == null and director != null:
@@ -441,9 +389,7 @@ func _refresh_character() -> void:
 
 
 ## [param from] with this NPC's own seed, unless the game already gave it one.
-##
-## An NPC whose character still carries the preset's seed is one of twenty identical
-## shooters, and the symptom is a volley rather than a fight.
+## A character still carrying the preset's seed is one of twenty identical shooters, and the symptom is a volley rather than a fight.
 func _seeded(from: DotNpcAiCharacter) -> DotNpcAiCharacter:
 	if from == null:
 		return null
@@ -467,10 +413,7 @@ func tactics() -> float:
 
 
 ## Everything this NPC notices this tick, before anything decides.
-##
-## In this order, because each step reads the last: the target (dot-npc's senses have run),
-## damage taken since the last think, what can be heard, and what the squad said. The
-## conditions it sets are what every guard and [DotNpcAiDecorator.Interrupt] reads.
+## In this order, because each step reads the last: the target (senses have run), damage since the last think, what can be heard, what the squad said. Sets the conditions every guard and [DotNpcAiDecorator.Interrupt] reads.
 func _sense() -> void:
 	var c := context.conditions
 	c.begin_tick()
@@ -491,12 +434,9 @@ func _sense() -> void:
 		var seen := absf(npc.target_seen_at - _world_now()) < 0.0001
 
 		if at != Vector3.INF:
-			# Tracked through the grace as well as when seen. During the grace the senses
-			# hand the brain the target's position — dot-npc's "follow them round the
-			# corner" — and a memory that stopped at the last true sighting would send the
-			# NPC BACK to that corner when the grace ran out, which reads as it changing its
-			# mind. Remembering what it was acting on means the search starts where the chase
-			# ended, and the velocity it carries is the one the target left with.
+						# Tracked through the grace as well as when seen: during the grace the senses hand over the target's
+						# position, and a memory that stopped at the last true sighting would send the NPC BACK to that
+						# corner when the grace ran out. The search then starts where the chase ended, with the target's velocity.
 			var entry := memory.sighted(npc.target_id, at, now)
 
 			if seen:
@@ -542,12 +482,8 @@ func _sense() -> void:
 		squad.sweep(_world_now())
 
 
-## LIGHT_DAMAGE for any hurt since the last think; HEAVY_DAMAGE when the hurt inside the
-## window adds up to [member heavy_damage_fraction] of its health.
-##
-## A window rather than one hit, because "heavy" is about how fast health is going: three
-## quick hits of ten percent are a reason to break off, and one hit of ten percent a minute
-## for three minutes is not.
+## LIGHT_DAMAGE for any hurt since the last think; HEAVY_DAMAGE when the hurt inside the window adds up to [member heavy_damage_fraction] of its health.
+## A window, not one hit: heavy is how fast health is going (three quick ten-percent hits break off; one a minute does not).
 func _sense_damage(c: DotNpcAiConditions) -> void:
 	var now := context.now
 
@@ -641,10 +577,7 @@ func _is_enemy(id: StringName) -> bool:
 
 
 ## Tells the squad what it sees, at most every [member report_interval].
-##
-## [b]Only an NPC with some tactics calls out.[/b] Below [constant CALLOUT_TACTICS] it fights
-## alone — the easy preset's dull monster that never tells anybody anything, which is half
-## of what makes it easy.
+## Only an NPC with some tactics calls out: below [constant CALLOUT_TACTICS] it fights alone, half of what makes the easy preset easy.
 func _report(entry: DotNpcAiMemory.Entry, now: float) -> void:
 	if squad == null or tactics() < CALLOUT_TACTICS:
 		return
@@ -674,11 +607,8 @@ func _squad_report(
 	return news
 
 
-## Where its current target — or, with none, the most recent thing it knows about — was
-## last known to be. [constant Vector3.INF] when there is nothing.
-##
-## Infinity rather than zero for "nothing", because zero is the middle of the map: an NPC
-## that went looking at the origin would read as a pathfinding bug.
+## Where its current target (or, with none, the most recent thing it knows about) was last known to be; [constant Vector3.INF] when there is nothing.
+## Infinity, not zero, because zero is the middle of the map and an NPC searching the origin reads as a pathfinding bug.
 func last_known_position() -> Vector3:
 	var entry := _search_entry()
 	return entry.position if entry != null else Vector3.INF
@@ -721,21 +651,9 @@ func _end_search() -> void:
 	blackboard.erase(KEY_SEARCH_ID)
 
 
-## Goes to where a lost enemy probably is, then looks round. A ready-made leaf.
-##
-## RUNNING while walking or looking, SUCCESS once it has looked and found nothing — that
-## enemy is forgotten then, so the branch moves on to the next thing remembered or fails —
-## and FAILURE when there was nothing to look for. Put it between the fight and the idle
-## branch of a reactive selector, and a target perceived during the search takes over on
-## the same tick.
-##
-## [b]Where it PROBABLY is, by [method tactics].[/b] [DotNpcAiMemory] keeps the velocity the
-## enemy left with; an NPC with tactics 0 walks to the spot it lost them, and one with
-## tactics 1 walks to where they were heading. The first is what players have escaped from
-## for twenty-five years by turning two corners. The second is not.
-##
-## The look-round sweeps either side of the heading it arrived on, for longer the better
-## its memory is.
+## Goes to where a lost enemy probably is, then looks round. A ready-made leaf: RUNNING while walking or looking, SUCCESS once it found nothing (that enemy is then forgotten), FAILURE with nothing to look for. Between the fight and the idle branch of a reactive selector, a target perceived mid-search takes over the same tick.
+## "Probably" by [method tactics]: [DotNpcAiMemory] keeps the velocity the enemy left with; tactics 0 walks to the spot they were lost, tactics 1 to where they were heading (turning two corners beats the first).
+## The look-round sweeps either side of the arrival heading, longer the better its memory.
 func search(ctx: DotNpcAiContext, speed: float, spacing: float = 1.6) -> DotNpcAiNode.Status:
 	if npc == null or not npc.is_alive() or blackboard == null or memory == null:
 		return DotNpcAiNode.Status.FAILURE
@@ -788,11 +706,8 @@ func look_round_time() -> float:
 	return clampf(memory_time() * 0.4, 1.0, 6.0)
 
 
-## Asks the squad for one of the places attacking the current target. True when it has one.
-##
-## [b]The question every attack branch should ask first.[/b] With no squad it is always
-## yes. [param capacity] defaults to [member attack_capacity], which a catalogue sets with
-## `"attackers"`. The slot is kept until the target changes, is lost, or this NPC dies.
+## Asks the squad for one of the places attacking the current target; true when it has one. The question every attack branch asks first.
+## With no squad always yes. [param capacity] defaults to [member attack_capacity] (a catalogue's `"attackers"`). Kept until the target changes, is lost, or this NPC dies.
 
 
 func claim_attack_slot(capacity: int = -1) -> bool:
@@ -811,13 +726,8 @@ func _attack_slot() -> StringName:
 	return _role_slot(ROLE_ATTACK, npc.target_id)
 
 
-## Asks the squad for one of [param capacity] places in [param role] against the current
-## target. With no squad, always yes. Kept until the target changes or this NPC dies.
-##
-## [b]Roles are attack slots with names.[/b] A squad that may have two attacking, one
-## suppressing and one flanking is four questions with one answer each, and a tree that
-## asks them in order — flank if nobody is, suppress if nobody is, otherwise attack or wait
-## — gets a squad that splits its work without anybody giving an order.
+## Asks the squad for one of [param capacity] places in [param role] against the current target. With no squad, always yes. Kept until the target changes or this NPC dies.
+## Roles are attack slots with names: a tree asking in order (flank if nobody is, suppress if nobody is, else attack or wait) splits a squad's work without anybody giving an order.
 func claim_role(role: StringName, capacity: int) -> bool:
 	if npc == null or not npc.has_target():
 		return false
@@ -906,11 +816,7 @@ func _enemy_facing(center: Vector3) -> Vector3:
 
 
 ## The best cover from [param threat] within [param max_distance], or [constant Vector3.INF].
-##
-## From the navigation data dot-npc's generator marked — a cover spot records which way its
-## wall is, so "covered from there" needs no raycast — scored by how well it covers against
-## how far away it is. [b]Claimed in the squad[/b], one NPC per spot: two NPCs that each pick
-## the best cover pick the same one, and the second stands in the open next to the first.
+## From the navigation data dot-npc's generator marked (a cover spot records which way its wall is, so no raycast), scored by cover against distance. Claimed in the squad, one NPC per spot: otherwise two pick the same and the second stands in the open.
 func find_cover(threat: Vector3, max_distance: float = 15.0) -> Vector3:
 	var data := _nav_data()
 
@@ -1059,15 +965,8 @@ func _world_now() -> float:
 
 
 ## Turns toward [param direction] no faster than this character can.
-##
-## [b]Every turn the brain makes goes through here, steering included[/b] — dot-npc's
-## `steer_toward` faces the way it moves — so an NPC's sight cone swings at the character's
-## [member DotNpcAiCharacter.view_turn_deg]. Without it every NPC snapped round in one tick:
-## shot from behind, it faced you before the sound of the shot had finished, and a player
-## could not get behind one at all.
-##
-## Limited from where the NPC faced at the START of the think, so two calls in one tick —
-## a steer and then a look — do not turn it twice as far.
+## Every turn the brain makes goes through here, steering included (dot-npc's `steer_toward` faces the way it moves), so the sight cone swings at [member DotNpcAiCharacter.view_turn_deg]; otherwise NPCs snap round in one tick and a player cannot get behind one.
+## Limited from where the NPC faced at the START of the think, so a steer and then a look do not turn it twice as far.
 func face(direction: Vector3) -> void:
 	if character == null or context == null or context.delta <= 0.0 or npc == null:
 		super(direction)
@@ -1084,10 +983,7 @@ func face(direction: Vector3) -> void:
 
 
 ## The nearby positions a separation pass needs, asked of the director.
-##
-## Duck-typed rather than typed, so this file names one dot-npc class and no more: a
-## host that publishes `npcs_near` gets crowd avoidance and one that does not gets an
-## empty array, which is the same behaviour as having nobody nearby.
+## Duck-typed so this file names one dot-npc class and no more: a host that publishes `npcs_near` gets crowd avoidance, one that does not gets an empty array (the same as nobody nearby).
 func neighbours(radius: float) -> Array:
 	var out: Array = []
 
@@ -1097,10 +993,9 @@ func neighbours(radius: float) -> Array:
 	if not director.has_method(&"npcs_near"):
 		return out
 
-	# Queried wider than the spacing, because `npcs_near` measures in 3D and a
-	# separation radius is horizontal: an NPC standing on another's head is a body
-	# height away in 3D and nothing at all on the floor, so a query at the spacing
-	# itself does not return the one pair that most needs pushing apart.
+		# Queried wider than the spacing, because `npcs_near` measures in 3D and a separation radius is
+		# horizontal: an NPC on another's head is a body height away in 3D and nothing on the floor, so a
+		# query at the spacing misses the pair that most needs pushing apart.
 	var found: Variant = director.call(&"npcs_near", npc.position(), radius * 2.0)
 
 	if not (found is Array):
@@ -1123,9 +1018,7 @@ func separation(here: Vector3, spacing: float, right: Vector3) -> Vector3:
 
 
 ## Steers toward [param to] while keeping [param spacing] metres from the neighbours.
-##
-## The one combination almost every NPC wants and nobody writes correctly the first
-## time: a path direction and a separation push, blended, then handed to the mover.
+## The combination almost every NPC wants: a path direction and a separation push, blended, then handed to the mover.
 func steer_with_spacing(
 	to: Vector3, speed: float, delta: float, spacing: float = 1.6
 ) -> void:
@@ -1141,24 +1034,16 @@ func steer_with_spacing(
 	var here := npc.position()
 	var wanted := DotNpcAiSteering.seek(here, goal)
 
-	# The NPC's own right as the tie-break for a stack. It differs per NPC because they
-	# are facing different ways, so two that end up one on top of the other are shoved
-	# in two different directions rather than in the same one — which is what makes them
-	# come apart rather than travel as a tower.
-	# [b]Derived from `facing()` rather than read off a basis, because an NPC is not
-	# always a 3D one.[/b] `node.global_transform.basis.x` does not exist on a [Node2D],
-	# and a 2D game reaching this line got "Invalid access to property 'global_transform'"
-	# once per NPC per tick. The right of a heading in this addon's plane — see
-	# [member DotNpcInstance.node] — is that heading turned a quarter turn about Y, which
-	# is the same vector for a 3D body and is defined for both.
+		# The NPC's own right as the tie-break for a stack: it differs per NPC, so two stacked NPCs are shoved
+		# apart in different directions, not travel as a tower. From `facing()` turned a quarter turn about Y,
+		# not a basis: `global_transform` does not exist on a [Node2D], and a 2D game errored once per NPC per tick.
 	var forward := npc.facing()
 	var right := Vector3(-forward.z, 0.0, forward.x)
 	var apart := separation(here, spacing, right)
 
-	# Separation is weighted below seeking, deliberately. Equal weights give a crowd
-	# that spreads out and stops arriving: at a doorway the pushes cancel the seek and
-	# the horde mills about outside, which reads as the pathfinder being broken.
-	# `DotNpcAiSteering.blend([[wanted, 1.0], [apart, 0.6]])` without its nested arrays.
+		# Separation is weighted below seeking: equal weights make a crowd that spreads out and stops arriving,
+		# since at a doorway the pushes cancel the seek and the horde mills about outside, which reads as a
+		# broken pathfinder.
 	var direction := wanted * 1.0 + apart * 0.6
 	direction.y = 0.0
 	direction = direction.normalized() if direction.length() > 0.001 else Vector3.ZERO
@@ -1193,11 +1078,9 @@ func _avoider() -> DotNpcAiAvoidance:
 
 
 
-## Notices an NPC that is steering and not getting anywhere, and gives it the graph's own corners
-## for a few seconds. A smoothed path on a coarse graph cuts the corner of a door jamb thinner
-## than its spacing, and the NPC presses into the jamb for as long as the path lasts: on
-## game-zombie-zone's ballpark, specials and commons stood at the tunnels' doors for minutes and
-## the waves ended on their overtime. Duck-typed, so an older dot-npc without it is left alone.
+## Notices an NPC that is steering and not getting anywhere, and gives it the graph's own corners for a few seconds.
+## A smoothed path on a coarse graph cuts a door jamb's corner thinner than its spacing and the NPC presses into the jamb for as long as the path lasts, so hordes stood at tunnel doors for minutes.
+## Duck-typed, so an older dot-npc without it is left alone.
 func _watch_progress(here: Vector3, goal: Vector3) -> void:
 	var now := _world_now()
 

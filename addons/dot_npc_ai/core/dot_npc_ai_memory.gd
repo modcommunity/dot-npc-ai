@@ -1,25 +1,9 @@
 class_name DotNpcAiMemory
 extends RefCounted
 
-## What an NPC knows about its enemies: several of them, how it knows, and where they went.
-##
-## [b]More than one enemy.[/b] dot-npc's senses commit to one target, which is right for
-## deciding what to chase and wrong for knowing what is going on: an NPC that saw two
-## players and is chasing one should still know where the other was, and should go there
-## when the first is dead. The tactical shooters' NPCs keep a list for exactly this.
-##
-## [b]How it knows matters.[/b] An entry made by the NPC's own eyes is a position and a
-## velocity; one made by a sound is a position nobody saw; one passed on by a squadmate is
-## second-hand. [enum Source] is kept so a behaviour can treat a rumour as a rumour.
-##
-## [b]And where it went, not only where it was.[/b] Every sighting updates a smoothed
-## velocity, and [method predicted] extrapolates from the last one. Going to the spot a
-## target was last seen is what NPCs have done for twenty-five years and it is the reason a
-## player escapes by running round one corner and then a second: the NPC arrives at the
-## first corner and looks at a wall. Going where the target was HEADING finds them.
-##
-## Forgetting is on read, like [DotNpcAiBlackboard], measured from the last time anything
-## was learned about an entry rather than from when it was first seen.
+## What an NPC knows about its enemies: several of them, how it knows ([enum Source], so a rumour stays a rumour), and where they went.
+## More than one because dot-npc's senses commit to one target; a second seen player should be known when the first dies. [method predicted] extrapolates the smoothed velocity, since the last-seen spot is a wall once the target has rounded two corners.
+## Forgetting is on read, like [DotNpcAiBlackboard], from the last time anything was learned.
 
 # No log channel: per-NPC knowledge, written and read every think.
 
@@ -62,10 +46,7 @@ var forget_after: float = 5.0
 var max_lead: float = 1.5
 
 ## Farthest an extrapolation may move a position, in metres.
-##
-## A runner at full sprint for a second and a half is ten metres; a capped lead is what
-## stops a target that was falling, or being knocked across the map, being predicted into
-## the next map.
+## A cap stops a falling or knocked-back target being predicted into the next map.
 var max_lead_distance: float = 10.0
 
 ## Sightings closer together than this are averaged for velocity; further apart they are
@@ -97,9 +78,7 @@ func sighted(id: StringName, position: Vector3, now: float) -> Entry:
 
 
 ## Something heard at [param position], attributed to [param id].
-##
-## Never overrides a sighting from the same tick, and never touches velocity: a sound says
-## where something was, not where it was going.
+## Never overrides a sighting from the same tick, and never touches velocity: a sound says where something was, not where it was going.
 func heard(id: StringName, position: Vector3, now: float) -> Entry:
 	var existing := get_entry(id, now)
 
@@ -112,11 +91,8 @@ func heard(id: StringName, position: Vector3, now: float) -> Entry:
 	return entry
 
 
-## A squadmate's report. Taken only when it is newer than what this NPC already knows.
-##
-## [b]Never newer than first-hand knowledge from the same moment[/b], and the velocity is
-## the reporter's, so a squad converges on where the target is going and not only on where
-## one of them happened to see it.
+## A squadmate's report. Taken only when newer than what this NPC knows.
+## Never newer than first-hand knowledge from the same moment; the reporter's velocity lets a squad converge on where the target is going.
 func informed(
 	id: StringName, position: Vector3, velocity: Vector3, seen_at: float, now: float
 ) -> bool:
@@ -188,10 +164,8 @@ func freshest(now: float) -> Entry:
 	return best
 
 
-## Where [param id] probably is now, leading its last known position by [param lead]
-## (0..1 of [member max_lead]). [constant Vector3.INF] when it is forgotten.
-##
-## Horizontal only. A target that jumped is not predicted into the sky.
+## Where [param id] probably is now, leading its last known position by [param lead] (0..1 of [member max_lead]); [constant Vector3.INF] when forgotten.
+## Horizontal only: a target that jumped is not predicted into the sky.
 func predicted(id: StringName, now: float, lead: float = 1.0) -> Vector3:
 	var entry := get_entry(id, now)
 

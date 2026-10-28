@@ -2,10 +2,7 @@ class_name DotNpcAiSquads
 extends RefCounted
 
 ## Every squad in one world, by name. Put on a director so its brains can find theirs.
-##
-## A brain joins the squad its definition names (`"squad"` in its meta) or the one its game
-## assigns, through this. Metadata on the director rather than [DotRegistry] for the reason
-## [DotNpcAiSkill] gives: two servers in one process must not share squads.
+## A brain joins the squad its definition names (`"squad"` in its meta) or the one its game assigns. Metadata on the director, not [DotRegistry], as [DotNpcAiSkill]: two servers in one process must not share squads.
 
 const META := &"dot_npc_ai_squads"
 

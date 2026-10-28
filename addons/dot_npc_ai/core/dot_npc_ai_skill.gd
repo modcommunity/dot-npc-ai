@@ -1,38 +1,9 @@
 class_name DotNpcAiSkill
 extends RefCounted
 
-## How good a server's NPCs are, set by the operator, on top of who each one is.
-##
-## [b]An adjustment, not a difficulty setting, and the difference is the design.[/b] A
-## [DotNpcAiCharacter] is per kind and per NPC — a brute is slow to notice and impossible
-## to shake, a stalker the other way round — and a global "difficulty 3" that REPLACED
-## those numbers would make every monster the same monster at a different speed. This
-## moves every character toward [method DotNpcAiCharacter.easy] or
-## [method DotNpcAiCharacter.nightmare] by a fraction, so a brute on a hard server is
-## still slower to notice than a stalker on the same server.
-##
-## [b]Ability moves; personality does not.[/b] Reaction, alertness, memory, aim, turning and tactics
-## are how GOOD an NPC is. Aggression, self-preservation, vengefulness and the movement
-## tendencies are who it IS, and a coward that turned brave on a hard server would be a
-## different game rather than a harder one.
-##
-## [b]And only ever in the direction asked for.[/b] A stalker authored with a faster
-## reaction than the nightmare preset is not made slower by turning skill UP, which a plain
-## lerp toward the preset would do — a bug that reads as "hard mode made them worse" and
-## only for the one kind that was already best.
-##
-## Three numbers, each a server cvar through [method bind_cvars]:
-##
-## [codeblock]
-## npc_skill            -1 .. 1, or easy/normal/hard/nightmare. 0 is as authored.
-## npc_reaction_scale   multiplies every reaction time. 0.5 reacts twice as fast.
-## npc_reaction_min     the floor no reaction time goes under, in seconds.
-## [/codeblock]
-##
-## One object per server, shared by every brain; [member revision] is how a brain learns it
-## changed without a signal per NPC. [method attach] puts it on a director as node metadata
-## rather than in [DotRegistry], because the registry is per process and two servers in one
-## process — which this family runs in its suites — must not share a difficulty.
+## How good a server's NPCs are, set by the operator, on top of who each one is. An adjustment, not a difficulty setting: it moves every character toward [method DotNpcAiCharacter.easy] or [method DotNpcAiCharacter.nightmare] by a fraction, because a global value that replaced the numbers would make every monster the same monster.
+## Ability (reaction, alertness, memory, aim, turning, tactics) moves; personality (aggression, self-preservation, movement tendencies) does not, and only in the direction asked: a plain lerp would make an already-better stalker worse.
+## Three cvars through [method bind_cvars]: `npc_skill` (-1..1 or a name), `npc_reaction_scale`, `npc_reaction_min`. One per server, shared by brains; [member revision] tells them it changed. [method attach] uses node metadata, not [DotRegistry], so two servers in one process do not share a difficulty.
 
 # No log channel: a few numbers and their parsing. The cvar that changed them logs.
 
@@ -48,9 +19,7 @@ const CVAR_HUMANISE := "npc_humanise"
 const META := &"dot_npc_ai_skill"
 
 ## The names [member skill] accepts as well as a number.
-##
-## Hard is half-way rather than all the way, because nightmare is the preset at the end of
-## the scale and "hard" meaning "nightmare" leaves an operator nowhere to go.
+## Hard is half-way, not nightmare, which sits at the end of the scale and would leave an operator nowhere to go.
 const LEVELS := {
 	"easy": -1.0,
 	"normal": 0.0,
@@ -66,19 +35,11 @@ const REACTION_FLOOR_MAX := 3.0
 var skill: float = 0.0
 
 ## Multiplies every reaction time, after [member skill].
-##
-## Separate from skill on purpose: "smart" and "quick" are two different complaints. An
-## operator whose players say the NPCs are unfair because they turn on you instantly wants
-## this, and does not want them to also start missing.
+## Separate from skill because "smart" and "quick" are different complaints: players who find NPCs turn on them instantly want this, not worse aim.
 var reaction_scale: float = 1.0
 
 ## No reaction time goes below this, in seconds.
-##
-## [b]0.05 by default and not zero, for the reason [method DotNpcAiCharacter.nightmare]
-## keeps one above zero:[/b] an NPC that acts on the tick it sees you is not harder, it is
-## inhuman, and [member reaction_scale] at its minimum would otherwise get there. A
-## character authored with NO reaction time — a scripted NPC — is left alone; see
-## [method apply].
+## 0.05, not zero: an instant reaction is inhuman, and [member reaction_scale] at its minimum would reach it. A character authored with no reaction time (a scripted NPC) is left alone; see [method apply].
 var reaction_min: float = 0.05
 
 ## Scales every character's reaction_jitter, overshoot, track_lag, strafe_jitter, glance, hesitate and hurt_delay; 0 turns the human unevenness off.
@@ -88,12 +49,9 @@ var humanise: float = 1.0
 var revision: int = 0
 
 
-# --- The adjustment -----------------------------------------------------------
 
-## [param base] as this server would have it. A new character; [param base] is not touched.
-##
-## The seed, id and personality are carried over unchanged, so an NPC's aim error is the
-## same miss it would have been at a different skill, scaled — not a different one.
+## [param base] as this server would have it, as a new character; [param base] is not touched.
+## Seed, id and personality carry over, so the aim error is the same miss scaled, not a different one.
 func apply(base: DotNpcAiCharacter) -> DotNpcAiCharacter:
 	if base == null:
 		return null
@@ -147,7 +105,6 @@ func is_neutral() -> bool:
 	return is_zero_approx(skill) and is_equal_approx(reaction_scale, 1.0) and is_equal_approx(humanise, 1.0)
 
 
-# --- Setting it ---------------------------------------------------------------
 
 func set_skill(value: float) -> void:
 	_assign(clampf(value, -1.0, 1.0), reaction_scale, reaction_min)
@@ -180,11 +137,8 @@ func _assign(p_skill: float, p_scale: float, p_min: float) -> void:
 	changed.emit()
 
 
-## Parses what an operator typed into the number [member skill] takes.
-##
-## A name from [constant LEVELS] or a number. Numbers outside -1..1 are clamped rather than
-## refused, which is what every other numeric cvar in the family does: `npc_skill 5` should
-## give the maximum, not an error somebody has to look the range up to fix.
+## Parses what an operator typed into the number [member skill] takes: a name from [constant LEVELS] or a number.
+## Numbers outside -1..1 are clamped, like every numeric cvar in the family: `npc_skill 5` gives the maximum, not an error.
 static func parse_skill(text: String) -> DotResult:
 	var trimmed := text.strip_edges().to_lower()
 
@@ -259,21 +213,9 @@ func cvar_specs() -> Array[Dictionary]:
 	return out
 
 
-## Registers the three cvars through [param add] and keeps this in step with them.
-##
-## [param add] is a server module's `add_cvar` — so the module unregisters them when it
-## unloads, which a console's own `cvar` would not — or anything with its signature:
-## `(name, default, description, flags) -> cvar`. Returns the cvars it made.
-##
-## [b]Duck-typed, because dot-server is not a dependency of this addon[/b] and a game with
-## NPCs and no dedicated server must still be able to install it. What a cvar must have is
-## a `changed(old, new)` signal and a `get_string()`; a range and a validator are used when
-## it offers them.
-##
-## [b]The current value is read back after registering.[/b] A cvar set before this ran —
-## from argv or a config file executed early — already holds the operator's value, and
-## leaving this object at its default would be a server whose `npc_skill` says hard and
-## whose NPCs are normal.
+## Registers the three cvars through [param add] (a server module's `add_cvar`, so they unregister on unload; or `(name, default, description, flags) -> cvar`) and keeps this in step. Returns the cvars made.
+## Duck-typed (needs `changed(old, new)` and `get_string()`), because dot-server is not a dependency and a game with no dedicated server must still install it.
+## The current value is read back after registering: a cvar set early from argv already holds the operator's value.
 func bind_cvars(add: Callable, flags: int = 0) -> Array:
 	var made: Array = []
 
@@ -317,12 +259,9 @@ static func _number(value: float) -> String:
 	return str(int(value)) if is_equal_approx(value, roundf(value)) else str(value)
 
 
-# --- Where brains find it -----------------------------------------------------
 
 ## Puts this on [param director], where every [DotNpcAiBrain] it spawns finds it.
-##
-## Before the first spawn, ideally; a brain that missed it looks again each tick until it
-## finds one, so a late attach costs a tick rather than a whole NPC's life.
+## Ideally before the first spawn; a brain that missed it looks again each tick, so a late attach costs a tick.
 func attach(director: Node) -> void:
 	if director != null:
 		director.set_meta(META, self)

@@ -2,22 +2,8 @@ class_name DotNpcAiNode
 extends RefCounted
 
 ## One node of a behaviour tree. The base every composite, decorator and leaf extends.
-##
-## [b]A behaviour tree is three return values and one hard rule.[/b] The values are
-## SUCCESS, FAILURE and RUNNING; the rule is that a node which returned RUNNING must be
-## [i]resumed[/i] next tick rather than restarted. Almost every hand-written tree gets
-## the rule wrong, and the symptom is not an error: a sequence whose second child is
-## RUNNING re-runs the first child every tick, so an NPC that was walking to a door
-## re-opens the door sixty times a second, or an attack that takes half a second never
-## finishes because its wind-up restarts. Everything looks alive and nothing completes.
-##
-## So [method tick] is not overridden. It records what happened, and [method _tick] is
-## what a subclass writes.
-##
-## [b]And a node that was RUNNING and is then abandoned must be told.[/b] A selector
-## whose higher-priority child becomes viable abandons the running one mid-action, and
-## an action holding a door open, a reservation or an animation has to let go.
-## [method abort] is that, and composites propagate it.
+## A tree is SUCCESS, FAILURE, RUNNING and one rule: a node that returned RUNNING is resumed next tick, not restarted. Hand-written trees get this wrong silently (an NPC re-opens the door sixty times a second), so [method tick] is not overridden: it records what happened, and a subclass writes [method _tick].
+## A RUNNING node that is then abandoned must be told ([method abort], propagated by composites) so an action holding a door, a reservation or an animation lets go.
 
 enum Status {
 	## Finished, and it worked.
@@ -61,11 +47,7 @@ func tick(ctx: DotNpcAiContext) -> Status:
 
 
 ## Abandons this node mid-action. Safe to call on a node that is not running.
-##
-## [b]Composites must call this on their running child before returning something
-## else[/b], or an action that reserved something never releases it. Every composite in
-## this addon does; a game writing its own must too, and this comment is the only place
-## that will say so.
+## Composites must call this on their running child before returning something else, or whatever it reserved is never released; a game writing its own composite must too.
 func abort(ctx: DotNpcAiContext) -> void:
 	if not is_running:
 		return
@@ -77,18 +59,8 @@ func abort(ctx: DotNpcAiContext) -> void:
 	_exit(ctx, Status.FAILURE)
 
 
-## A reproducible number in [0, 1) from two integers.
-##
-## [b]Shared by every node here that decides anything by chance, and deliberately not
-## [method randf].[/b] A server rewinding to check a shot, a replay being scrubbed and
-## a second run of the same headless test must all agree about what an NPC chose —
-## and a global RNG agrees with none of them, because the number it hands out depends
-## on how many other things asked for one first.
-##
-## Kept positive at every step: GDScript ints are signed and `>>` on a negative one
-## shifts ones in from the top, which makes a mixer reproducible and not uniform. The
-## family shipped exactly that in dot-combat, where a shift-and-mask left 23 bits of a
-## 24-bit field and every shotgun pattern was a half-moon on one side of the aim.
+## A reproducible number in [0, 1) from two integers, shared by every node that decides by chance. Not [method randf]: a server rewind, a replay and a second headless run must agree, and a global RNG depends on how many others asked first.
+## Kept positive at every step: `>>` on a negative GDScript int shifts ones in, which is reproducible but not uniform (dot-combat's shotgun patterns were a half-moon).
 static func deterministic_unit(a: int, b: int) -> float:
 	const MASK := 0x7FFFFFFFFFFFFFFF
 
@@ -107,7 +79,6 @@ func children() -> Array[DotNpcAiNode]:
 	return []
 
 
-# --- Subclass interface -------------------------------------------------------
 
 ## Called on the tick this node starts, before [method _tick].
 func _enter(_ctx: DotNpcAiContext) -> void:
@@ -129,7 +100,6 @@ func _abort(_ctx: DotNpcAiContext) -> void:
 	pass
 
 
-# --- Reporting ----------------------------------------------------------------
 
 func status_name() -> String:
 	return Status.keys()[last_status]
@@ -144,10 +114,7 @@ func describe() -> Dictionary:
 
 
 ## The tree below this node, one line per node, indented. For a console command.
-##
-## [b]The only way anybody debugs a behaviour tree.[/b] A tree has no stack trace and no
-## breakpoint that means anything: what a person needs is the shape and what each node
-## did on the last tick, which is exactly this.
+## The only way to debug a behaviour tree, which has no stack trace: a person needs the shape and what each node did last tick.
 func describe_lines(depth: int = 0) -> PackedStringArray:
 	var out := PackedStringArray()
 

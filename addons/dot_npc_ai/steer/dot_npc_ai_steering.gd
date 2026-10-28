@@ -1,22 +1,9 @@
 class_name DotNpcAiSteering
 extends RefCounted
 
-## The steering an NPC needs once there are ninety of them pathing to the same door.
-##
-## [b]This is the gap dot-npc's docs/navigation.md names.[/b] dot-npc paths and follows; it says
-## nothing about two NPCs that want to be in the same place, because separation is a
-## behaviour rather than a fact about the world. Without it a horde arriving at a
-## doorway is a single NPC-shaped stack of ninety bodies, which is both the wrong look
-## and, on rigid bodies, a solver spending the whole tick pushing them apart.
-##
-## [b]Every method returns a DESIRED DIRECTION, and moves nothing.[/b] The caller
-## combines them and hands the result to whatever drives the body — dot-npc's
-## `steer_toward`, a `CharacterBody3D`, a `NavigationAgent3D`. A steering library that
-## moved things would have to know what a body is, and that is exactly the dependency
-## this addon does not take.
-##
-## All of it is horizontal. The vertical is the ground's business, and an NPC that
-## steered in Y walks into the air on a slope.
+## The steering an NPC needs once ninety of them path to the same door: the gap dot-npc's docs/navigation.md names, since separation is a behaviour, not a fact about the world. Without it a horde is one stack of bodies (and on rigid bodies a solver pushing them apart all tick).
+## Every method returns a DESIRED DIRECTION and moves nothing, so the caller feeds `steer_toward`, a `CharacterBody3D` or a `NavigationAgent3D` and this addon needs no idea what a body is.
+## All horizontal: the vertical is the ground's, and steering in Y walks an NPC into the air on a slope.
 
 ## Straight at [param goal]. The one everything else is a correction to.
 static func seek(from: Vector3, goal: Vector3) -> Vector3:
@@ -30,12 +17,8 @@ static func flee(from: Vector3, threat: Vector3) -> Vector3:
 	return -seek(from, threat)
 
 
-## Seek that slows inside [param radius], so an NPC stops on its target rather than
-## orbiting it.
-##
-## Returns a direction scaled between 0 and 1, not a unit vector — the caller multiplies
-## by a speed, so the scaling is the braking. An NPC without this overshoots, turns,
-## overshoots the other way, and reads as indecisive rather than as un-braked.
+## Seek that slows inside [param radius], so an NPC stops on its target rather than orbiting it.
+## Returns a direction scaled 0..1, so the caller's speed multiply is the braking; without it an NPC overshoots both ways and reads as indecisive.
 static func arrive(from: Vector3, goal: Vector3, radius: float) -> Vector3:
 	var direction := goal - from
 	direction.y = 0.0
@@ -50,25 +33,8 @@ static func arrive(from: Vector3, goal: Vector3, radius: float) -> Vector3:
 	return direction / distance * scale
 
 
-## Away from anything within [param radius], weighted by how close it is.
-##
-## [param others] is an array of [Vector3] positions, which is deliberately not a list
-## of NPCs: the caller already has the positions and this addon should not have to know
-## what it is separating.
-##
-## [b]Weighted by 1/distance rather than by distance.[/b] Linear weighting makes the
-## thing that is nearly touching you push about as hard as the one two metres away,
-## which is a crowd that spreads evenly and still overlaps. What is wanted is a shove
-## that is almost nothing at the edge of the radius and very strong at contact.
-##
-## [b][param tie_break] is what separates a STACK, and without it nothing does.[/b] This
-## is horizontal, like everything else here — and two NPCs one directly above the other
-## have a horizontal offset of nothing, so the push is nothing and they stay stacked for
-## ever. That is not a hypothetical: twelve capsules converging on one point in this
-## addon's own suite ended with one perched on another's head, chasing perfectly, at a
-## dead stop, with every number about it correct. A caller passes a direction of its
-## own — [DotNpcAiBrain] passes the NPC's right, which differs per NPC because they face
-## different ways — and a degenerate pair is shoved along it instead.
+## Away from anything within [param radius], weighted by 1/distance: linear weighting pushes a near-touching body no harder than one two metres off, so a crowd spreads evenly and still overlaps. [param others] is [Vector3] positions, not NPCs.
+## [b][param tie_break] separates a STACK:[/b] one NPC directly above another has no horizontal offset, so the push is zero and they stay stacked. A caller passes its own direction ([DotNpcAiBrain] passes the NPC's right, which differs per NPC) and a degenerate pair is shoved along it.
 static func separate(
 	from: Vector3, others: Array, radius: float, tie_break: Vector3 = Vector3.ZERO
 ) -> Vector3:
@@ -88,13 +54,9 @@ static func separate(
 		var away := Vector3(offset.x, 0.0, offset.z)
 		var distance := away.length()
 
-		# The range test is HORIZONTAL, and that is the fix for the stack.
-		#
-		# A 3D test looks right and is wrong here: two capsules one on another's head
-		# are about 1.8 m apart in 3D and zero apart on the floor, so a 1.6 m 3D range
-		# skips exactly the pair that most needs shoving — which is how one of them
-		# stayed perched, chasing perfectly, at a dead stop, in this addon's own suite.
-		# The vertical is only consulted to rule out something far overhead.
+				# The range test is HORIZONTAL: capsules one on another's head are 1.8 m apart in 3D and zero on the
+				# floor, so a 1.6 m 3D range skips exactly the pair that most needs shoving. The vertical is only
+				# consulted to rule out something far overhead.
 		if distance > radius or absf(offset.y) > radius * 2.0:
 			continue
 
@@ -142,15 +104,8 @@ static func cohere(from: Vector3, others: Array) -> Vector3:
 
 
 ## A heading that drifts rather than jumping. For an NPC with nothing to do.
-##
-## [b]The wander that works is a drifting angle, not a random direction per tick.[/b] A
-## fresh random direction every tick averages to standing still and looks like a seizure;
-## a random direction re-picked every few seconds looks like a robot on a patrol route.
-## An angle that takes a small random step each tick gives the aimless drift that reads
-## as an animal.
-##
-## [param seed_value] makes it deterministic per NPC, which is what lets a suite replay a
-## horde and get the same horde.
+## A random direction per tick averages to standing still (a seizure) and one every few seconds is a robot; an angle taking a small random step each tick reads as an animal.
+## [param seed_value] makes it deterministic per NPC so a suite can replay a horde.
 static func wander(current_angle: float, jitter: float, seed_value: int) -> float:
 	# A hash rather than `randf()`, because a global RNG makes one NPC's wandering
 	# depend on how many other NPCs wandered first — and that makes a replay of the
@@ -166,11 +121,7 @@ static func angle_to_direction(angle: float) -> Vector3:
 
 
 ## Blends weighted directions into one. The last step of every steering pass.
-##
-## [param weighted] is an array of `[Vector3, float]` pairs. The result is normalised, so
-## the weights decide the balance and never the speed — a caller multiplying an
-## un-normalised blend by a speed gets an NPC that runs faster when two urges happen to
-## agree, which is invisible until somebody wonders why fleeing is quicker than chasing.
+## [param weighted] is `[Vector3, float]` pairs. Normalised, so weights decide balance and never speed: an un-normalised blend runs faster when two urges agree.
 static func blend(weighted: Array) -> Vector3:
 	var sum := Vector3.ZERO
 
@@ -188,15 +139,8 @@ static func blend(weighted: Array) -> Vector3:
 	return sum.normalized() if sum.length() > 0.001 else Vector3.ZERO
 
 
-## Heads for where a moving target is going to be, rather than where it is.
-##
-## [b]Seek at a moving target is a tail chase.[/b] An NPC that steers at a runner's
-## current position approaches from behind for ever and never closes, which reads as an
-## NPC that is slower than it is. Craig Reynolds' pursuit: estimate how long it will
-## take to get there, and aim at where the target will be then.
-##
-## [param own_speed] of zero means "no idea", and the result is a plain seek — which is
-## the right answer, because a chaser with no speed has no time to predict over.
+## Heads for where a moving target is going to be, rather than where it is (Reynolds' pursuit): seeking a runner's current position is a tail chase that never closes.
+## [param own_speed] of zero means "no idea" and gives a plain seek, since a chaser with no speed has no time to predict over.
 static func pursue(
 	from: Vector3, target: Vector3, target_velocity: Vector3, own_speed: float
 ) -> Vector3:
@@ -226,20 +170,9 @@ static func evade(
 	return flee(from, threat + threat_velocity * ahead)
 
 
-## Deflects [param direction] around anything in the way.
-##
-## [param obstacles] is an array of [code]{position: Vector3, radius: float}[/code] —
-## whatever the game already knows is solid: props, other NPCs, a vehicle. The result
-## is a unit direction, or [param direction] when nothing is close enough to matter.
-##
-## [b]This is not pathfinding and must not be used as it.[/b] It only looks
-## [param look_ahead] metres down the current heading, so it walks an NPC round a
-## barrel and into a dead end — which is the correct division: dot-npc's graph decides
-## the route and this stops the NPC scraping the furniture on the way.
-##
-## The deflection is sideways rather than a stop. Braking in front of an obstacle is
-## what makes a crowd of NPCs pile up at a doorway and never resolve; stepping round it
-## is what makes them flow.
+## Deflects [param direction] around anything in the way. [param obstacles] is `{position: Vector3, radius: float}` (props, NPCs, a vehicle); returns a unit direction, or [param direction] when nothing matters.
+## Not pathfinding: it looks only [param look_ahead] metres down the heading, so dot-npc's graph decides the route and this stops scraping the furniture.
+## Deflects sideways rather than stopping: braking in front of an obstacle piles a crowd at a doorway for ever.
 static func avoid(
 	direction: Vector3,
 	from: Vector3,
@@ -286,10 +219,9 @@ static func avoid(
 		var side := (to_obstacle - heading * along)
 
 		if side.length_squared() <= 0.0001:
-			# Dead ahead, exactly. Any side will do and the cross product gives none,
-			# so a fixed one is chosen — and it is chosen from the obstacle's position
-			# rather than at random, so two NPCs approaching the same barrel from the
-			# same side both go the same way instead of dancing.
+						# Dead ahead: the cross product gives no side, so choose one from the obstacle's position, not at
+						# random, so two NPCs approaching the same barrel from the same side go the same way instead of
+						# dancing.
 			side = heading.cross(Vector3.UP)
 			if side.length_squared() <= 0.0001:
 				side = Vector3.RIGHT
@@ -305,9 +237,7 @@ static func avoid(
 
 
 ## Whether anything in [param obstacles] blocks the next [param look_ahead] metres.
-##
-## The question [method avoid] answers implicitly, exposed because a tree wants to ask
-## it as a condition — "is my way clear" is a branch, not a steering force.
+## What [method avoid] answers implicitly, exposed because "is my way clear" is a tree branch, not a steering force.
 static func is_way_clear(
 	direction: Vector3,
 	from: Vector3,

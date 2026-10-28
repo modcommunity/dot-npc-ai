@@ -1,27 +1,9 @@
 class_name DotNpcAiSquad
 extends RefCounted
 
-## NPCs that fight together: what one sees the rest know, and only so many attack at once.
-##
-## [b]Slots are the idea.[/b] Twelve NPCs that each decide on their own to attack the
-## nearest player arrive as a queue and stand in a line — every one of them correct, and the
-## whole obviously stupid. The tactical shooters' squads solve it with a few named slots per
-## squad: two may attack, one may throw a grenade, one may flank. An NPC that cannot get the
-## attack slot does something else useful — surround, flank, cover, wait its turn — and the
-## moment an attacker dies the slot is free and the next one steps in. That single rule is
-## most of what players call "the AI is coordinated".
-##
-## [b]Sharing is the other half.[/b] A member that sees an enemy tells the squad, and the
-## rest learn where it is — second-hand, marked as such in their [DotNpcAiMemory], with the
-## sighter's velocity so they go where it is heading. A squad whose members each have to
-## find you separately is a set of NPCs standing near each other.
-##
-## [b]Members are held weakly, by instance id.[/b] A squad pointing at its brains and every
-## brain pointing at its squad is a cycle GDScript never frees; a dead NPC's brain would
-## live as long as the squad. A member that has gone is dropped the next time anybody looks.
-##
-## dot-core only: a member is any object with the methods it is called with, which is how
-## [DotNpcAiBrain] joins without this file naming it.
+## NPCs that fight together: what one sees the rest know, and only so many attack at once. A few named slots per squad (two attack, one grenades, one flanks) stop twelve NPCs queueing in a line; one that misses the attack slot surrounds, flanks or waits, and the next steps in when an attacker dies.
+## A member that sees an enemy tells the squad: second-hand in the others' [DotNpcAiMemory], with the sighter's velocity. Members are held weakly by instance id, since squad and brains pointing at each other is a cycle GDScript never frees.
+## dot-core only: a member is any object with the methods it is called with, so [DotNpcAiBrain] joins without this file naming it.
 
 # Slots and sharing are asked every think and do not log; the token pool logs its grants and releases.
 
@@ -178,10 +160,7 @@ func index_of(member: Object) -> int:
 
 
 ## [param from] saw [param enemy] at [param position] moving at [param velocity].
-##
-## Every other member is called with
-## `_squad_report(enemy, position, velocity, seen_at)` if it has that method.
-## Returns how many accepted it as news; 0 under [member pull_reports], where it is logged.
+## Every other member gets `_squad_report(enemy, position, velocity, seen_at)` if it has it. Returns how many accepted it as news; 0 under [member pull_reports], where it is logged.
 func report(
 	from: Object, enemy: StringName, position: Vector3, velocity: Vector3, seen_at: float
 ) -> int:
@@ -352,14 +331,9 @@ func holds(slot: StringName, member: Object) -> bool:
 	return member != null and _live_holders(slot).has(member.get_instance_id())
 
 
-## What was [method remember]ed under [param key] at the clock reading [param now], or null.
-## Everything remembered at an earlier reading is forgotten on the first question at a new one.
-##
-## [b]For the questions every member of a crowd asks about the same target in one tick.[/b]
-## Who else is waiting on a target, and which way the target faces, walk every member and ask
-## each one's slots: eighty zombies on twelve survivors asking it each was six thousand slot
-## lookups a tick, each copying a holder list. Asked once and shared it is eighty.
-## [param now] must be a clock every member reads the same (the director's), not a brain's own.
+## What was [method remember]ed under [param key] at clock reading [param now], or null; anything from an earlier reading is forgotten on the first question at a new one.
+## For questions every member asks about one target in a tick: eighty zombies on twelve survivors asking each was six thousand slot lookups, asked once and shared it is eighty.
+## [param now] must be a clock every member reads the same (the director's).
 func memo(key: Variant, now: float) -> Variant:
 	if now != _memo_at:
 		_memo.clear()
@@ -388,9 +362,7 @@ func holder_count(slot: StringName) -> int:
 	return _live_holders(slot).size()
 
 
-## The holders of [param slot] whose members still exist. The stored list itself while every
-## holder is live (callers only read it, or append through [method claim]); a pruned list otherwise.
-##
+## The holders of [param slot] whose members still exist: the stored list while all are live (callers only read it, or append through [method claim]), a pruned copy otherwise.
 ## Checked on every read: a member freed without leaving (a world ending) would hold its slot for ever.
 func _live_holders(slot: StringName) -> Array:
 	var holders: Variant = _slots.get(slot)
@@ -424,10 +396,8 @@ func _live_holders(slot: StringName) -> Array:
 
 
 ## Asks for an attack token against [param target] at clock reading [param now]; true when [param member] holds one.
-##
-## [b]Pool, cap and queue.[/b] At most `pool_size` in all, `per_target_cap` on one target; a refused
-## member waits, and when room appears the longest waiter on that target goes first so none starves.
-## One that lost its token to a timeout or lost sight sits out `retake_cooldown_s`, which is what rotates attackers.
+## At most `pool_size` in all, `per_target_cap` on one target; a refused member queues and the longest waiter goes first so none starves.
+## One that lost its token to a timeout or lost sight sits out `retake_cooldown_s`, which rotates attackers.
 func take_token(member: Object, target: StringName, now: float) -> bool:
 	if member == null:
 		return false

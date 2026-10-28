@@ -1,20 +1,7 @@
 extends SceneTree
 
-## Writes a top-down trace of four squad soldiers closing on one player, as CSV.
-##
-## [b]A picture, not a check.[/b] The suite asserts where a squad ends up; it cannot see how
-## it got there, or that three NPCs all "on the ring" are standing on one spot of it. The
-## first surround passed every check with its three waiters stacked forty centimetres
-## apart, and this trace is what showed it. Render it with `tools/plot_trace.py`.
-##
-## [codeblock]
-## TRACE_OUT=/tmp/trace.csv godot --headless --path . -s tools/trace_surround.gd
-## TRACE_KIND=gunner TRACE_OUT=/tmp/guns.csv godot --headless --path . -s tools/trace_surround.gd
-## python3 tools/plot_trace.py /tmp/trace.csv /tmp/trace.png
-## [/codeblock]
-##
-## Columns: tick, player x, player z, then x, z and holds-the-attack-slot (0/1) per soldier.
-## The player stands for three seconds and then strafes toward +X, so the ring has to follow.
+## Writes a top-down trace of four squad soldiers closing on one player, as CSV: a picture, not a check, since the suite cannot see three NPCs "on the ring" stacked on one spot of it. Render with `tools/plot_trace.py`.
+## `TRACE_OUT=/tmp/trace.csv [TRACE_KIND=gunner] godot --headless --path . -s tools/trace_surround.gd`. Columns: tick, player x, z, then x, z and holds-the-attack-slot per soldier; the player stands three seconds, then strafes toward +X.
 
 func _init() -> void:
 	_run.call_deferred()
@@ -46,7 +33,7 @@ func _run() -> void:
 	}
 	cat.add(soldier)
 
-	# TRACE_KIND=gunner: two gunners, one flanking and one holding the front; a gunner is not an
+	# Kind "gunner" (TRACE_KIND): two gunners, one flanking and one holding the front; a gunner is not an
 	# attacker, so this shows what flanking does with no melee in front.
 	var gunner := DotNpcDef.make(&"gunner", "res://fixtures/npc_body.tscn")
 	gunner.brain_script_path = "res://fixtures/gunner_brain.gd"

@@ -1,23 +1,9 @@
 class_name DotNpcAiConditions
 extends RefCounted
 
-## What an NPC has noticed THIS tick, as bits: the interrupts a running behaviour checks.
-##
-## [b]The piece every shipped tactical NPC has and a bare behaviour tree does not.[/b] A
-## tree asks questions of the world when it reaches a node; it has no idea that something
-## happened in the middle of a long action. The single-player shooters' answer, which held
-## up for twenty years, is to sense once per think into a set of conditions — "I can see an
-## enemy", "I just took a lot of damage", "I hear danger" — and have every long action name
-## the conditions that end it. A reload interrupted by heavy damage, a patrol interrupted by
-## a new enemy: that is what makes an NPC look like it is paying attention.
-##
-## [b]Sensed once, read many times.[/b] [DotNpcAiBrain] fills this before the tree and the
-## machine run, so every guard and every [DotNpcAiDecorator.Interrupt] in both sees the same
-## facts on the same tick. A condition computed inside a node would be computed again by the
-## next node that wanted it, and the two could disagree.
-##
-## [b]Bits rather than a dictionary[/b], because the commonest question is "any of these",
-## and that is one AND. Games define their own from [constant GAME_FIRST] up.
+## What an NPC has noticed THIS tick, as bits: the interrupts a running behaviour checks. A tree only asks the world when it reaches a node, so it misses what happened mid-action; long actions name the conditions that end them (a reload cut off by heavy damage).
+## [b]Sensed once, read many times:[/b] [DotNpcAiBrain] fills this before the tree and machine run, so every guard and [DotNpcAiDecorator.Interrupt] sees the same facts.
+## [b]Bits, not a dictionary,[/b] because "any of these" is one AND. Games define their own from [constant GAME_FIRST] up.
 
 # No log channel: a bitset, set and read every think by every NPC.
 
@@ -95,9 +81,7 @@ func has_all(mask: int) -> bool:
 
 
 ## Whether any of [param mask] is set now and was not last tick.
-##
-## For "react once": a guard on HEAVY_DAMAGE that should start a flinch on the hit and not
-## restart it on every tick of a damage window.
+## For "react once": a HEAVY_DAMAGE guard starts a flinch on the hit, not on every tick of a damage window.
 func became(mask: int) -> bool:
 	return (bits & mask & ~previous) != 0
 

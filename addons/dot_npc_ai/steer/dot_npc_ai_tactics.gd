@@ -1,11 +1,8 @@
 class_name DotNpcAiTactics
 extends RefCounted
 
-## Where to stand: around an enemy, behind it, and the best of a set of places.
-##
-## Like [DotNpcAiSteering], every function answers with a position or a score and moves nothing.
-## Surrounding is the point: NPCs without an attack slot ([DotNpcAiSquad]) take a spread ring round the enemy,
-## working round to the side it is not facing, so a player facing one has turned their back on another.
+## Where to stand: around an enemy, behind it, and the best of a set of places. Like [DotNpcAiSteering], every function answers with a position or score and moves nothing.
+## Surrounding: NPCs without an attack slot ([DotNpcAiSquad]) take a spread ring, working round to the side the enemy is not facing, so a player facing one has turned their back on another.
 
 # No log channel: pure functions.
 
@@ -38,11 +35,8 @@ static func ring_point(
 	return center + Vector3(cos(bearing), 0.0, sin(bearing)) * radius
 
 
-## A point on the ring of [param radius] round [param center], moved from [param from]'s
-## bearing toward [param bearing] by at most [param max_step] radians.
-##
-## [method ring_point] with the destination given as a bearing rather than as "behind": what
-## a squad member walks at once [method spread_bearings] has told it which place is its own.
+## A point on the ring of [param radius] round [param center], moved from [param from]'s bearing toward [param bearing] by at most [param max_step] radians.
+## [method ring_point] with the destination as a bearing: what a squad member walks at once [method spread_bearings] has given it its place.
 static func ring_toward(
 	center: Vector3, from: Vector3, radius: float, bearing: float, max_step: float
 ) -> Vector3:
@@ -54,11 +48,8 @@ static func ring_toward(
 	return center + Vector3(cos(heading), 0.0, sin(heading)) * radius
 
 
-## A bearing each for [param positions] round [param center], spread [param step] radians
-## apart across an arc centred on [param focus]. Returned in the order of [param positions].
-##
-## Handed out in the order they already stand, measured round from the focus, so no two cross paths;
-## without a share-out every NPC walks at "directly behind" and a surround is a heap.
+## A bearing each for [param positions] round [param center], [param step] radians apart across an arc centred on [param focus], in the order of [param positions].
+## Handed out in the order they already stand, so no two cross paths; without a share-out every NPC walks at "directly behind" and a surround is a heap.
 static func spread_bearings(
 	center: Vector3, focus: float, positions: Array, step: float, max_arc: float = TAU * 0.85
 ) -> PackedFloat32Array:
@@ -115,9 +106,7 @@ static func angle_from_behind(center: Vector3, enemy_facing: Vector3, from: Vect
 
 
 ## The index of the best of [param candidates] by [param scorer], or -1.
-##
-## [param scorer] is `func(position: Vector3, index: int) -> float`; higher is better, and
-## -INF rules a place out. Scored rather than an if-chain, because "best place" is always a trade.
+## [param scorer] is `func(position: Vector3, index: int) -> float`; higher is better, -INF rules a place out. Scored, not an if-chain, because "best place" is always a trade.
 static func best_of(candidates: PackedVector3Array, scorer: Callable) -> int:
 	var best := -1
 	var best_score := -INF
@@ -133,10 +122,7 @@ static func best_of(candidates: PackedVector3Array, scorer: Callable) -> int:
 
 
 ## The best place on a ring round [param center] for [param from] to flank from, or INF when there is none.
-##
-## Scored through [method best_of]: higher for being behind [param enemy_facing] (by [method angle_from_behind]),
-## lower for each of [param allies] already within the ally radius and for the walk there. Weights are the
-## token config's, so a game tunes flanking from a file.
+## Scored through [method best_of]: higher behind [param enemy_facing] ([method angle_from_behind]), lower for each of [param allies] within the ally radius and for the walk there; weights are the token config's.
 static func best_flank(
 	center: Vector3, enemy_facing: Vector3, from: Vector3, radius: float, allies: Array, cfg: DotNpcAiTokenConfig
 ) -> Vector3:

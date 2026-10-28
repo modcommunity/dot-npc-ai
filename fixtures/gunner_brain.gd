@@ -1,20 +1,7 @@
 extends "res://addons/dot_npc_ai/runtime/dot_npc_ai_brain.gd"
 
-## A brain for the self-test: something that fights at range.
-##
-## [codeblock]
-## selector (reactive)
-##   flee danger
-##   sequence (reactive)  has a target?
-##     selector
-##       sequence (reactive)  the squad's one flank role? -> round to its back, firing
-##       suppress              hold the range band, and fire when every gate is open
-##   search
-##   idle
-## [/codeblock]
-##
-## Counts the shots it was allowed to take, so the suite can ask whether it fired at all
-## and whether it held its fire when it should have.
+## A brain for the self-test: something that fights at range. Tree: reactive selector of flee danger, a reactive sequence on "has a target?" (the squad's one flank role goes round to its back, firing; otherwise suppress), search, idle.
+## Counts the shots it was allowed to take, so the suite can ask whether it fired at all and whether it held fire when it should.
 
 var shots: int = 0
 

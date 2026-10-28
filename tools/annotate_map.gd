@@ -1,31 +1,8 @@
 extends SceneTree
 
-## Bakes a map's navigation mesh, annotates it, prints what it found and, with a renderer,
-## photographs it from above and from two corners with the annotations drawn over it.
-##
-## [codeblock]
-## # The toy level the suite uses:
-## xvfb-run -a godot --path . --resolution 1600x900 --script res://tools/annotate_map.gd -- --toy --out /tmp/toy
-## # Any map, from source geometry a game saved (NavigationMeshSourceGeometryData3D, .res):
-## xvfb-run -a godot --path . --resolution 1600x900 --script res://tools/annotate_map.gd -- --source map.res --out /tmp/map
-## # Counts only (no pictures):
-## timeout 300 godot --headless --path . --script res://tools/annotate_map.gd -- --source map.res
-## [/codeblock]
-##
-## A game makes the source file from its loaded map's colliders with
-## `NavigationServer3D.parse_source_geometry_data` (static colliders) and `ResourceSaver.save`;
-## an imported map's geometry stays in the game's own checkout, never in this repository.
-##
-## `--meta FILE.json` adds where bodies start and the map's teleports, which a loaded map
-## knows and its geometry does not: `{"spawns": [[x, y, z]...], "teleports": [{"min": [..],
-## "max": [..], "to": [..]}...]}`. Spawns and teleport destinations become the annotator's
-## seeds (so the islands nobody reaches, a roof or the inside of a brush, are left out), and
-## each teleport a declared link from its volume's floor to where it sends.
-##
-## Options: `--radius 0.35 --height 1.8 --climb 0.4 --jump 1.0 --drop 6 --gap 3 --slice 24`.
-## `--out PREFIX` writes PREFIX_top.png, PREFIX_zoom.png (the busiest 16 m), PREFIX_corner_a.png, PREFIX_corner_b.png and
-## PREFIX.json (the annotations). The run is stepped in slices as a scheduler would; the
-## slowest slice is printed, since that is what a frame would pay.
+## Bakes a map's navigation mesh, annotates it, prints what it found and, with a renderer (xvfb-run), photographs it to `--out PREFIX` (_top, _zoom, _corner_a, _corner_b .png and PREFIX.json). Source: `--toy`, or `--source map.res` (NavigationMeshSourceGeometryData3D a game saved; never commit it here).
+## `--meta FILE.json` gives spawns and teleports (`{"spawns": [[x,y,z]], "teleports": [{"min":..,"max":..,"to":..}]}`), which become seeds and declared links. Options: `--radius --height --climb --jump --drop --gap --slice`.
+## Run: `godot --path . --script res://tools/annotate_map.gd -- --toy --out /tmp/toy`. The slowest slice is printed, since a frame would pay it.
 
 const Toy := preload("res://fixtures/nav_toy_level.gd")
 

@@ -425,10 +425,9 @@ func _skill_memory(spawner: DotNpcSpawner, npc: DotNpcInstance, brain: DotNpcAiB
 	_check(npc.has_target(), "the searcher acquires somebody")
 	_check(brain.remembers_target(), "and remembers where they are")
 
-	# Out of sight without leaving: the same id, the same place, on the NPC's own side so
-	# the senses cannot perceive it — which is a player behind a wall, as far as dot-npc
-	# can tell. Emptying the candidates instead would also make the position unknowable,
-	# and a game's players do not stop existing when they hide.
+		# Out of sight without leaving: same id and place, on the NPC's own side so the senses cannot perceive
+		# it (a player behind a wall). Emptying the candidates would also make the position unknowable, and
+		# players do not stop existing when they hide.
 	spawner.set_candidates([
 		DotNpcSenses.Candidate.new(&"player", Vector3(0, 0, -8), hidden)
 	])
@@ -490,10 +489,9 @@ func _skill_hurt(spawner: DotNpcSpawner, npc: DotNpcInstance, brain: DotNpcAiBra
 func _skill_vengeance(spawner: DotNpcSpawner, npc: DotNpcInstance, brain: DotNpcAiBrain, skill: DotNpcAiSkill) -> void:
 	spawner.set_candidates([
 		DotNpcSenses.Candidate.new(&"near", npc.position() + Vector3(0, 0, -4), &"player"),
-		# Not much further than the other. The senses' stickiness switches BACK to a rival
-		# 40% nearer than the committed target, and that rule is right: the first version
-		# of this check put the attacker half as far again away, the NPC had walked toward
-		# the nearer one, and the senses took the vengeance back on the next pass.
+				# Not much further than the other: the senses' stickiness switches BACK to a rival 40% nearer than
+				# the committed target, which is right, so an attacker half as far again away lost the vengeance
+				# on the next pass.
 		DotNpcSenses.Candidate.new(&"far", npc.position() + Vector3(0, 0, 4.5), &"player"),
 	])
 

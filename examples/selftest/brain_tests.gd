@@ -124,10 +124,9 @@ func _test_brain_on_a_real_npc() -> void:
 
 	spawner.set_candidates([])
 
-	# Long enough for BOTH clocks: the senses hold a target they cannot see for
-	# `commitment_grace` (3 s), and only then does `searching` start its own 3-second
-	# timeout. Six hundred ticks is ten seconds, which clears both with room. A test
-	# sized to one of the two passes or fails depending on which clock it forgot.
+		# Long enough for BOTH clocks: the senses hold an unseen target for `commitment_grace` (3 s), then
+		# `searching` starts its own 3 s timeout. Six hundred ticks is ten seconds; a test sized to one
+		# clock passes or fails depending on which it forgot.
 	for i in 600:
 		spawner.tick(1.0 / 60.0)
 
@@ -141,10 +140,9 @@ func _test_brain_on_a_real_npc() -> void:
 		"having fallen through to the tree's other branch"
 	)
 
-	# [b]And the spawner going away takes the brain with it.[/b] The context points back at
-	# the brain and the brain holds the context, and a world is torn down by freeing its
-	# nodes, never by removing its NPCs — so this is the path that leaked, in every game
-	# with hunters, at every exit. Freed rather than queued, so PREDELETE runs now.
+		# The spawner going away takes the brain with it: context and brain point at each other and a world is
+		# torn down by freeing nodes, not removing NPCs, so this path leaked in every game with hunters.
+		# Freed, not queued, so PREDELETE runs now.
 	var brain_ref: WeakRef = weakref(brain)
 	var context_ref: WeakRef = weakref(brain.context)
 	var npc_ref: WeakRef = weakref(npc)
@@ -707,10 +705,9 @@ func _test_crowd_separation() -> void:
 	for a in npcs:
 		for b in npcs:
 			if a.instance_id != b.instance_id:
-				# HORIZONTALLY. A 3D distance calls two capsules stacked one on the
-				# other's head "1.8 metres apart", which is the one arrangement this
-				# check exists to catch — and it is the arrangement that actually
-				# happens, because a crowd converging on a point climbs itself.
+								# HORIZONTALLY: a 3D distance calls two capsules stacked on each other's head 1.8 m apart,
+								# the one arrangement this check exists to catch, and the one that happens when a crowd
+								# converging on a point climbs itself.
 				var between := a.position() - b.position()
 				between.y = 0.0
 				closest = minf(closest, between.length())

@@ -1,27 +1,9 @@
 class_name DotNpcAiSounds
 extends RefCounted
 
-## Noises an NPC can hear: gunfire, footsteps, an explosion, a grenade landing.
-##
-## [b]The other half of perception.[/b] dot-npc's senses take a loudness per candidate,
-## which is "can I hear this player right now"; it cannot say "somebody fired a gun over
-## there" or "a grenade just landed at my feet", and those are the two sounds that make an
-## NPC look like it is in the same world as the player. The single-player shooters kept a
-## world list of sounds with a kind, a place, a radius and an owner, and every NPC listened
-## to it on its think. This is that list.
-##
-## [b]A game emits; brains listen.[/b] Nothing here knows what a weapon is. A game calls
-## [method emit] where a shot is fired or a grenade bounces, with the radius it should be
-## heard at, and every [DotNpcAiBrain] whose director has this attached hears it on its next
-## think if it is in range — scaled by its character's alertness.
-##
-## [b]Events, not states.[/b] A brain hears each sound once, the first think it is in
-## range, by its id. A gunshot that lasted half a second is not heard thirty times, and an
-## NPC that walks into the radius of an old sound does not hear it — a sound is something
-## that happened.
-##
-## One per world, put on the director as metadata for the reason [DotNpcAiSkill] is: two
-## servers in one process must not hear each other.
+## Noises an NPC can hear: gunfire, footsteps, an explosion, a grenade landing. dot-npc's senses take a loudness per candidate and cannot say "somebody fired over there"; this is the world list of sounds (kind, place, radius, owner) every NPC listens to on its think.
+## A game emits ([method emit]); brains listen, scaled by alertness. Events, not states: a brain hears each sound once, by id, so a half-second gunshot is not heard thirty times and an old sound is not heard on walking into its radius.
+## One per world, on the director as metadata like [DotNpcAiSkill]: two servers in one process must not hear each other.
 
 # No log channel: written by every shot and read by every NPC's think.
 
@@ -73,10 +55,7 @@ var _next_id: int = 1
 
 
 ## Makes a noise. Returns its id.
-##
-## [param now] is the director's clock — dot-npc's `DotNpcSpawner.now()` — so expiry agrees
-## with the brains that listen. [param duration] is how long it stays on the list for a brain
-## that has not thought yet; it is not how long anybody hears it for.
+## [param now] is the director's clock (`DotNpcSpawner.now()`) so expiry agrees with the listeners. [param duration] is how long it stays on the list for a brain that has not thought yet, not how long anybody hears it.
 func emit(
 	kind: Kind,
 	position: Vector3,
@@ -107,9 +86,7 @@ func emit(
 
 
 ## Every live sound newer than [param after_id] that a listener at [param at] can hear.
-##
-## [param hearing] scales every radius: a character's alertness, so an attentive NPC hears a
-## shot further away than a dull one.
+## [param hearing] scales every radius (a character's alertness), so an attentive NPC hears a shot further off.
 func audible(at: Vector3, now: float, hearing: float = 1.0, after_id: int = 0) -> Array[Sound]:
 	var out: Array[Sound] = []
 

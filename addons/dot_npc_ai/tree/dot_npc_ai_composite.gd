@@ -2,10 +2,7 @@ class_name DotNpcAiComposite
 extends DotNpcAiNode
 
 ## A node with children. The base for [DotNpcAiSelector] and [DotNpcAiSequence].
-##
-## [b]It owns the running-child index, because that is the rule the whole tree turns
-## on.[/b] A composite whose child returned RUNNING resumes at that child next tick
-## rather than at the first — see [DotNpcAiNode] for what happens when it does not.
+## It owns the running-child index, because the whole tree turns on that rule: a composite whose child returned RUNNING resumes there next tick, not at the first (see [DotNpcAiNode]).
 
 var _children: Array[DotNpcAiNode] = []
 
@@ -34,9 +31,7 @@ func child_count() -> int:
 
 
 ## Where to resume from this tick, and clears the memory.
-##
-## Reset before running rather than after, because a composite may return RUNNING again
-## from a different child and would otherwise clear what it just recorded.
+## Reset before running, not after: a composite may return RUNNING again from a different child and would clear what it just recorded.
 func _resume_from() -> int:
 	var from := _running_child if _running_child >= 0 else 0
 	_running_child = -1

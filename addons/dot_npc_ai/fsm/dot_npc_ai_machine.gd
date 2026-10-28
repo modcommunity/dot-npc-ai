@@ -2,12 +2,7 @@ class_name DotNpcAiMachine
 extends RefCounted
 
 ## A state machine over [DotNpcAiState]s. The simpler half of this addon.
-##
-## [b]Transitions are taken at most [member max_transitions_per_tick] times in one
-## tick.[/b] Two states whose conditions each send the NPC to the other is an infinite
-## loop that hangs the server rather than misbehaving — and it is written by accident
-## every time somebody adds a state. The cap turns a hang into a warning and an NPC
-## stuck in one of the two, which is a bug a person can see and report.
+## Transitions are taken at most [member max_transitions_per_tick] times a tick: two states that each send the NPC to the other would hang the server, and the cap turns that into a warning and a visible stuck NPC.
 
 const CHANNEL := "npc.ai"
 
@@ -15,10 +10,7 @@ const CHANNEL := "npc.ai"
 signal changed(from: StringName, to: StringName)
 
 ## How many transitions may be taken in one tick before the machine gives up.
-##
-## Four rather than one, because a legitimate chain does happen — "idle" to "alerted" to
-## "chasing" on the tick a player appears — and a machine that only ever took one would
-## make that take three ticks for no reason.
+## Four, not one: a legitimate chain happens ("idle" to "alerted" to "chasing" on the tick a player appears) and one would take three ticks.
 var max_transitions_per_tick: int = 4
 
 ## Id -> DotNpcAiState.
@@ -65,10 +57,7 @@ func elapsed(now: float) -> float:
 
 
 ## Puts the machine into [param id] without asking any transition.
-##
-## What a game calls to start the machine, and to force a state from outside — an NPC
-## that has just been shot goes to "hurt" because it was shot, not because a condition
-## noticed.
+## For starting the machine and forcing a state from outside: an NPC that was just shot goes to "hurt" because it was shot, not because a condition noticed.
 func go_to(ctx: DotNpcAiContext, id: StringName) -> DotResult:
 	if not _states.has(id):
 		return DotResult.fail(DotError.CODE_INVALID, "No such state.", String(id))
@@ -94,10 +83,7 @@ func go_to(ctx: DotNpcAiContext, id: StringName) -> DotResult:
 
 
 ## One tick: take any transitions that apply, then run the state that is current.
-##
-## [b]Transitions first, then the tick.[/b] The other order runs a state for one tick
-## after its own exit condition became true, which for "flee when hurt" is one more tick
-## of walking toward the thing that is hurting you.
+## Transitions first: the other order runs a state one tick after its exit condition held, so "flee when hurt" walks one more tick toward the threat.
 func tick(ctx: DotNpcAiContext) -> void:
 	if _current == &"":
 		return

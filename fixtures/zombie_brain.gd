@@ -1,11 +1,7 @@
 extends "res://addons/dot_npc_ai/runtime/dot_npc_ai_brain.gd"
 
 ## A brain for the self-test: a machine of three states over a tree of two branches.
-##
-## [b]Extends a PATH, not [code]DotNpcAiBrain[/code], and the suite asserts that this
-## file loads through dot-npc's spawner.[/b] It is the shape a brain delivered inside a
-## mounted dot-cloud pack must have, and writing the fixture the other way would make
-## the suite pass for a shape the addon does not support.
+## Extends a PATH, not [code]DotNpcAiBrain[/code], and the suite asserts it loads through dot-npc's spawner: that is the shape a brain in a mounted dot-cloud pack must have.
 
 var chases: int = 0
 var wanders: int = 0
@@ -30,10 +26,9 @@ func _build() -> void:
 			.after(3.0, &"idle")
 	)
 
-	# REACTIVE, because this is a guard followed by an action that never finishes.
-	# A plain sequence resumes at the action and never asks the guard again, so the
-	# zombie chases a target it no longer has for ever. That is exactly what the first
-	# version of this fixture did and what the suite caught.
+		# REACTIVE, because this is a guard followed by an action that never finishes: a plain sequence
+		# resumes at the action and never asks the guard again, so the zombie chases a target it no longer
+		# has for ever.
 	tree = DotNpcAiSelector.new(&"root", [
 		DotNpcAiSequence.reactive_with(&"chase", [
 			DotNpcAiLeaf.Condition.new(&"has a target", _has_target),

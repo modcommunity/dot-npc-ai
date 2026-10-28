@@ -2,17 +2,8 @@ class_name DotNpcAiState
 extends RefCounted
 
 ## One state of a [DotNpcAiMachine]: what to do, and what would make it stop.
-##
-## [b]A state machine is here beside the behaviour tree because a tree is overkill for
-## most NPCs.[/b] A zombie has four states and a shopkeeper has two; expressing either
-## as a tree is a tree with one branch per state and a guard on each, which is a state
-## machine with extra steps and worse debugging. The tree earns its keep on the NPC with
-## fifteen behaviours and priorities between them, and that NPC is the rare one.
-##
-## [b]Transitions live on the state, not in a table.[/b] The table is the textbook
-## answer and it puts the reason a state ends somewhere other than the state — so
-## reading one state tells you what it does and not when it stops, which is the half a
-## person is usually looking for.
+## Here beside the behaviour tree because a tree is overkill for most NPCs (a zombie has four states): one branch and guard per state is a state machine with extra steps and worse debugging.
+## Transitions live on the state, not in a table, so reading one state tells you when it stops as well as what it does.
 
 ## Stable id. What a transition names and what a debugger prints.
 var id: StringName = &""
@@ -27,17 +18,11 @@ var on_tick: Callable = Callable()
 var on_exit: Callable = Callable()
 
 ## Transitions out, in priority order: the first whose test passes wins.
-##
-## Order is the priority, exactly as a selector's child order is. "Flee when hurt" goes
-## above "chase the target" or an NPC on one health point keeps chasing.
+## Order is the priority, as in a selector: "flee when hurt" goes above "chase" or an NPC on one health point keeps chasing.
 var transitions: Array = []
 
 ## Seconds after which [member timeout_to] is taken. 0 for never.
-##
-## [b]A state with no way out is the commonest broken NPC there is[/b] — an attack whose
-## target died, a search whose destination is unreachable — and a timeout is the cheap
-## guard against every one of them. It is checked before the ordinary transitions so it
-## cannot be starved by one that is always false.
+## A state with no way out (an attack whose target died, an unreachable search) is the commonest broken NPC; checked before ordinary transitions so an always-false one cannot starve it.
 var timeout: float = 0.0
 
 var timeout_to: StringName = &""

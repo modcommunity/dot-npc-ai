@@ -1,21 +1,7 @@
 extends "res://addons/dot_npc_ai/runtime/dot_npc_ai_brain.gd"
 
-## A brain for the self-test: the shape a game's soldier takes, built from the base class's
-## ready-made leaves rather than its own.
-##
-## [codeblock]
-## selector (reactive)
-##   flee danger                          a grenade beats everything
-##   sequence (reactive)  has a target?
-##     selector
-##       sequence (reactive)  holds an attack slot?  -> walk at it
-##       surround                          wait a turn on the ring, working round
-##   search                               where the enemy probably went
-##   idle
-## [/codeblock]
-##
-## [b]No character of its own.[/b] The definition names one with `"skill"` in its meta, and
-## its squad with `"squad"`, which are the catalogue paths the suite asserts.
+## A brain for the self-test: the shape a game's soldier takes, built from the base class's ready-made leaves. Tree: reactive selector of flee danger (a grenade beats everything), a reactive sequence on "has a target?" (attack slot walks at it, else surround), search, idle.
+## No character of its own: the definition names one with `"skill"` in its meta and its squad with `"squad"`, the catalogue paths the suite asserts.
 
 var chases: int = 0
 var searches: int = 0

@@ -1,44 +1,19 @@
 class_name DotNpcAiRandomSelector
 extends DotNpcAiComposite
 
-## Picks one child by weight and runs it. Variety, without a second decision model.
-##
-## [b]A tree with no chance in it makes every NPC of a kind do the same thing in the
-## same situation.[/b] Three zombies that lose sight of a player all walk to the last
-## place they saw them, arrive together, and stand in a row — which is not a bug in any
-## of them and is obviously wrong to anybody watching. One of them searching left, one
-## right and one waiting is the whole difference, and it is one node.
-##
-## Weights rather than an even roll, because "usually chase, sometimes flank" is the
-## shape a designer wants and an even selector cannot say it.
-##
-## [b]The choice is made on entry and kept.[/b] Re-rolling a child that returned RUNNING
-## abandons whatever it was doing on the next tick, so an NPC that chose to flank
-## re-decides sixty times a second and goes nowhere. This is the same rule the whole
-## addon is built on — a node that returned RUNNING is resumed, not restarted — reached
-## from the one direction where it is tempting to break it.
-##
-## [codeblock]
-## var search := DotNpcAiRandomSelector.new(&"search", [go_left, go_right, wait])
-## search.set_weights([2.0, 2.0, 1.0])       # waiting is half as likely
-## search.salt = npc.seed                    # and these three do not agree
-## [/codeblock]
+## Picks one child by weight and runs it: variety without a second decision model. Without chance every NPC of a kind does the same thing (three zombies searching one spot arrive together and stand in a row); weights say "usually chase, sometimes flank" where an even selector cannot.
+## The choice is made on entry and kept: re-rolling a RUNNING child abandons it each tick, the addon's RUNNING-is-resumed rule from the tempting direction.
+## `DotNpcAiRandomSelector.new(&"search", [go_left, go_right, wait])`, then `set_weights([2.0, 2.0, 1.0])` and `salt = npc.seed`.
 
 ## One weight per child. Missing or short, every child weighs 1.
 var weights: PackedFloat32Array = PackedFloat32Array()
 
-## Mixed into the roll so two of these in one tree — or on two NPCs — disagree.
-##
-## Leaving it at zero is a working selector that every NPC in the world agrees with,
-## which is the thing this node exists to prevent. A game sets it to the NPC's seed
-## ([member DotNpcInstance.seed]), never its instance id: that moves between runs.
+## Mixed into the roll so two of these in one tree, or on two NPCs, disagree.
+## At zero every NPC in the world agrees, which this node exists to prevent. Set it to the NPC's seed ([member DotNpcInstance.seed]), never its instance id, which moves between runs.
 var salt: int = 0
 
 ## Whether a chosen child that fails ends this node, or the next one is tried.
-##
-## Off: a random selector is a choice, not a fallback chain. On is for "pick one at
-## random, and if it will not run pick another", which is what a spawn point or a
-## barked line wants.
+## Off: a choice, not a fallback chain. On is for "pick one, and if it will not run pick another" (a spawn point, a barked line).
 var retry_on_failure: bool = false
 
 var _chosen: int = -1
@@ -53,10 +28,8 @@ func set_weights(values: Array) -> DotNpcAiRandomSelector:
 	weights = PackedFloat32Array()
 
 	for value in values:
-		# A negative weight is not "never picked", it is a total that no longer sums to
-		# what the roll is scaled against — and every child after it in the walk gets a
-		# share it was not given. Clamped rather than refused, because a weight is
-		# usually written by hand.
+				# A negative weight is not "never picked": it breaks the total the roll is scaled against and
+				# shifts every later child's share. Clamped, not refused, because weights are written by hand.
 		weights.append(maxf(float(value), 0.0))
 
 	return self
@@ -84,14 +57,9 @@ func _tick(ctx: DotNpcAiContext) -> Status:
 	if _children.is_empty():
 		return Status.FAILURE
 
-	# Resumed at whatever was running, not re-rolled. See the class documentation.
-	#
-	# [member _running_child] is read directly rather than through
-	# [method DotNpcAiComposite._resume_from], which answers 0 when nothing was
-	# running — the right default for a sequence or a selector, which both start at
-	# their first child, and exactly wrong here: it makes every roll land on child
-	# zero, which is a random selector that is not random. The suite caught it as
-	# three hundred picks out of three hundred going the same way.
+		# Resumed at whatever was running, not re-rolled. Reads [member _running_child] directly, not
+		# [method DotNpcAiComposite._resume_from], whose default 0 is right for a selector and wrong here:
+		# every roll would land on child zero (three hundred picks of three hundred went one way).
 	if _running_child >= 0 and _running_child < _children.size():
 		_chosen = _running_child
 

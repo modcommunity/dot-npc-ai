@@ -1,25 +1,8 @@
 class_name DotNpcAiHeatmap
 extends RefCounted
 
-## Where players go on a map, learned by watching them, and kept between rounds.
-##
-## [b]The step past knowing where a player IS: knowing where players GO.[/b] Every NPC in
-## this family knows what it can see, hear and be told. None of them knew that on this map
-## everybody runs the left corridor, camps the upper ledge, or crosses the bridge at the
-## start of a round — and that is the knowledge a good human opponent fights with. A
-## monster that patrols the corridors players use, and waits where they come through, is
-## one that meets them; one that wanders is one that meets a wall.
-##
-## A grid of cells over the floor, each with a weight per channel, that decays with a
-## half-life so the map is a picture of recent play rather than of every round since the
-## server started. A game records into it — a player's position every half second into
-## [constant TRAFFIC], a player's death into [constant DEATHS] — and brains ask for the
-## hottest places near them. [method to_dictionary] and [method from_dictionary] keep it
-## across map changes and restarts, so a server gets better at its own maps the longer it
-## runs.
-##
-## Channels are names, so a game may keep its own ("where the flag is carried") beside the
-## two every game has.
+## Where players go on a map, learned by watching them, and kept between rounds: a grid of cells with a weight per channel ([constant TRAFFIC], [constant DEATHS], or a game's own) that decays with a half-life, so it pictures recent play.
+## Knowing where players GO lets a monster patrol the corridors they use and wait where they come through, not meet a wall. [method to_dictionary] and [method from_dictionary] keep it across restarts.
 
 # No log channel: written by a game's tick and read by brains; the game logs persistence.
 
@@ -167,7 +150,6 @@ func clear() -> void:
 	_channels.clear()
 
 
-# --- Keeping it ---------------------------------------------------------------
 
 ## A document of every channel, decayed to [param now] and stamped at zero, so a map loaded
 ## on a server whose clock started again carries the weights rather than the timestamps.
@@ -192,9 +174,7 @@ func to_dictionary(now: float) -> Dictionary:
 
 
 ## Reads [method to_dictionary]'s document, stamping every cell at [param now].
-##
-## A different cell size is refused rather than reinterpreted: a cell of three metres read
-## as one of two puts every hot corridor a third of the way to somewhere else.
+## A different cell size is refused, not reinterpreted: three-metre cells read as two-metre put every hot corridor in the wrong place.
 static func from_dictionary(data: Dictionary, now: float = 0.0) -> DotResult:
 	var out := DotNpcAiHeatmap.new()
 	out.cell_size = float(data.get("cell_size", out.cell_size))
