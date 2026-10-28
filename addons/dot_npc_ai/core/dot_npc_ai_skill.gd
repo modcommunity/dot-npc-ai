@@ -81,7 +81,7 @@ var reaction_scale: float = 1.0
 ## [method apply].
 var reaction_min: float = 0.05
 
-## Scales every character's reaction_jitter; 0 turns the human unevenness off.
+## Scales every character's reaction_jitter, overshoot, track_lag, strafe_jitter, glance, hesitate and hurt_delay; 0 turns the human unevenness off.
 var humanise: float = 1.0
 
 ## Bumped on every change. A brain compares it rather than connecting a signal per NPC.
@@ -121,6 +121,12 @@ func apply(base: DotNpcAiCharacter) -> DotNpcAiCharacter:
 		out.reaction_time = maxf(out.reaction_time * reaction_scale, reaction_min)
 
 	out.reaction_jitter = base.reaction_jitter * humanise
+	out.overshoot = clampf(base.overshoot * humanise, 0.0, 1.0)
+	out.track_lag = clampf(base.track_lag * humanise, 0.0, 0.5)
+	out.strafe_jitter = clampf(base.strafe_jitter * humanise, 0.0, 1.0)
+	out.glance = clampf(base.glance * humanise, 0.0, 1.0)
+	out.hesitate = clampf(base.hesitate * humanise, 0.0, 2.0)
+	out.hurt_delay = clampf(base.hurt_delay * humanise, 0.0, 1.0)
 	return out
 
 

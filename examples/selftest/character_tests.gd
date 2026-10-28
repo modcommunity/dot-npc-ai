@@ -451,6 +451,7 @@ func _test_character_aim() -> void:
 	var quick := DotNpcAiCharacter.new()
 	quick.view_turn_deg = 3600.0
 	quick.view_factor = 1.0
+	quick.overshoot = 0.0
 	_check(
 		quick.turn_view(Vector3.FORWARD, Vector3.RIGHT, 1.0).is_equal_approx(Vector3.RIGHT),
 		"and arrives exactly when the turn is within one tick"

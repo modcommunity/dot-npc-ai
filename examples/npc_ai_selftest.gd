@@ -14,13 +14,13 @@ extends "res://examples/selftest/conditions_tests.gd"
 ## selector aborts the branch it took over from, and that a repeater with a synchronous
 ## child does not hang the process.
 
-const CHECKS := 442
+const CHECKS := 458
 
 ## Sections entered against sections that ran to their last line, and against this. A
 ## runtime error inside a section aborts that function and nothing says so; a section that
 ## bailed out early after a failed guard is counted as not finished on purpose. The CHECKS
 ## total is the other half — see docs/testing.md.
-const SECTIONS := 42
+const SECTIONS := 43
 
 
 func _ready() -> void:
@@ -64,6 +64,7 @@ func _run() -> void:
 	_test_crowd_separation()
 	_test_server_skill()
 	_test_reaction_jitter()
+	_test_humanising()
 	_test_brain_under_a_skill()
 	_test_conditions()
 	_test_memory()
@@ -1614,6 +1615,120 @@ func _test_reaction_jitter() -> void:
 	var skill := DotNpcAiSkill.new()
 	_check(is_equal_approx(skill.apply(jittered).reaction_jitter, 0.5), "npc_humanise 1 leaves a character's jitter")
 	_check(skill.set_cvar("npc_humanise", "0") and skill.apply(jittered).reaction_jitter == 0.0, "npc_humanise 0 removes it")
+	_done()
+
+
+func _test_humanising() -> void:
+	_section("humanising: overshoot, tracking lag, strafe, glance, hesitate, hurt delay")
+
+	var off := DotNpcAiCharacter.normal().with_seed(5)
+	off.overshoot = 0.0
+	off.track_lag = 0.0
+	off.strafe_jitter = 0.0
+	off.glance = 0.0
+	off.hesitate = 0.0
+	off.hurt_delay = 0.0
+	off.aim_accuracy = 1.0
+	off.aim_skill = 1.0
+	var on := DotNpcAiCharacter.normal().with_seed(5)
+	on.overshoot = 1.0
+	on.view_turn_deg = 720.0
+
+	# Overshoot: a big turn passes the target, then returns to it; 0 never passes.
+	var want := Vector3(0, 0, -1)
+	var v_on := Vector3(1, 0, 0)
+	var v_off := Vector3(1, 0, 0)
+	var passed := false
+	for i in range(200):
+		v_on = on.turn_view(v_on, want, 0.016)
+		v_off = off.turn_view(v_off, want, 0.016)
+		if v_on.x < -0.02:
+			passed = true
+	_check(passed, "a big turn swings past the target with overshoot")
+	_check(v_on.angle_to(want) < 0.05, "and comes back onto it", "%.3f" % v_on.angle_to(want))
+	var never := true
+	v_off = Vector3(1, 0, 0)
+	for i in range(200):
+		v_off = off.turn_view(v_off, want, 0.016)
+		if v_off.x < -0.0001:
+			never = false
+	_check(never, "overshoot 0 never passes it")
+
+	# Tracking lag: the lead follows a velocity change late; without lag it is immediate.
+	var lag := DotNpcAiCharacter.normal().with_seed(5)
+	lag.track_lag = 0.3
+	lag.aim_accuracy = 1.0
+	lag.aim_skill = 1.0
+	lag.track_velocity(Vector3(5, 0, 0), 0.0)
+	lag.track_velocity(Vector3(-5, 0, 0), 0.05)
+	var lagged := lag.aim_point(Vector3.ZERO, Vector3(0, 0, -10), Vector3(-5, 0, 0), 10.0, 1)
+	var exact := off.aim_point(Vector3.ZERO, Vector3(0, 0, -10), Vector3(-5, 0, 0), 10.0, 1)
+	_check(lagged.x > exact.x + 0.5, "aim leads with the old velocity for a moment", "%.2f vs %.2f" % [lagged.x, exact.x])
+	for i in range(1, 40):
+		lag.track_velocity(Vector3(-5, 0, 0), 0.05 + 0.05 * i)
+	_check(is_equal_approx(lag.aim_point(Vector3.ZERO, Vector3(0, 0, -10), Vector3(-5, 0, 0), 10.0, 1).x, exact.x) or absf(lag.aim_point(Vector3.ZERO, Vector3(0, 0, -10), Vector3(-5, 0, 0), 10.0, 1).x - exact.x) < 0.05, "and catches up")
+
+	# Strafe: 0 is the square wave, jitter varies lengths, pauses and eases.
+	var square_ok := true
+	for i in range(100):
+		var t := float(i) * 0.37
+		var plain := 1.0 if fmod(t / 3.0, 2.0) < 1.0 else -1.0
+		if off.strafe_drift(t, 3.0) != plain:
+			square_ok = false
+	_check(square_ok, "strafe_jitter 0 is exactly the plain alternation")
+	var jit := DotNpcAiCharacter.normal().with_seed(5)
+	jit.strafe_jitter = 1.0
+	var mid := 0
+	var flips := 0
+	var last := 0.0
+	for i in range(600):
+		var d := jit.strafe_drift(float(i) * 0.05, 3.0)
+		if absf(d) > 0.05 and absf(d) < 0.95:
+			mid += 1
+		if d != 0.0 and last != 0.0 and signf(d) != signf(last):
+			flips += 1
+		if d != 0.0:
+			last = d
+	_check(mid > 30, "jittered strafing eases between directions", str(mid))
+	_check(flips >= 2 and jit.strafe_drift(7.7, 3.0) == jit.strafe_drift(7.7, 3.0), "still reverses, and the same moment always agrees", str(flips))
+
+	# Glance.
+	var glances := 0
+	var worst := 0.0
+	for i in range(2000):
+		var g := on.glance_offset(float(i) * 0.1)
+		if g != 0.0:
+			glances += 1
+		worst = maxf(worst, absf(g))
+	_check(glances > 100 and worst <= deg_to_rad(90.0) + 0.001, "a glance happens now and then and stays within 90 degrees", "%d, %.2f" % [glances, worst])
+	var none := true
+	for i in range(500):
+		if off.glance_offset(float(i) * 0.1) != 0.0:
+			none = false
+	_check(none, "glance 0 never looks aside")
+
+	# Hesitate: bounded by the reaction, deterministic, off at 0.
+	var h := DotNpcAiCharacter.normal().with_seed(5)
+	h.hesitate = 2.0
+	h.reaction_jitter = 0.0
+	var bounded := true
+	for i in range(50):
+		if h.hesitation(float(i) * 1.3) > h.reaction_time + 0.0001:
+			bounded = false
+	_check(bounded, "hesitation never outlasts the reaction")
+	_check(h.is_hesitating(1.0, 1.0) and not h.is_hesitating(1.0, 1.0 + h.reaction_time + 0.01) and not off.is_hesitating(1.0, 1.0), "hesitating at first, not after, never at 0")
+	_check(h.hesitation(2.2) == h.hesitation(2.2), "the same sighting hesitates the same")
+
+	# Hurt delay.
+	_check(off.hurt_turn_delay(9) == 0.0 and on.hurt_turn_delay(9) > 0.0 and on.hurt_turn_delay(9) <= on.hurt_delay * 1.4 + 0.0001, "hurt turn is instant at 0 and a short delay otherwise")
+
+	# npc_humanise.
+	var skill := DotNpcAiSkill.new()
+	var applied := skill.apply(on)
+	_check(is_equal_approx(applied.overshoot, 1.0) and is_equal_approx(applied.hurt_delay, on.hurt_delay) and is_equal_approx(applied.hesitate, on.hesitate), "npc_humanise 1 leaves them")
+	skill.set_cvar("npc_humanise", "0")
+	var zero := skill.apply(on)
+	_check(zero.overshoot == 0.0 and zero.track_lag == 0.0 and zero.strafe_jitter == 0.0 and zero.glance == 0.0 and zero.hesitate == 0.0 and zero.hurt_delay == 0.0, "npc_humanise 0 turns all six off")
 	_done()
 
 

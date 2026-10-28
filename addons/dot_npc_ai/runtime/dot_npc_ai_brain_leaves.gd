@@ -48,7 +48,10 @@ static func patrol_hot(
 	var flow := b.heatmap.flow_at(DotNpcAiHeatmap.TRAFFIC, here, b._world_now())
 
 	if flow.length_squared() > 0.0001:
-		b.face(flow)
+		var look := flow
+		if b.character != null:
+			look = flow.rotated(Vector3.UP, b.character.glance_offset(ctx.now))
+		b.face(look)
 
 	var camper := b.character.camper if b.character != null else 0.2
 	var hold := lerpf(2.0, 20.0, camper)
@@ -92,6 +95,7 @@ static func aim_solution(b: DotNpcAiBrain, muzzle: Vector3, travel_speed: float 
 	var entry := b.memory.get_entry(b.npc.target_id, b.context.now) if b.memory != null else null
 	var velocity := entry.velocity if entry != null else Vector3.ZERO
 	b.shots_fired += 1
+	b.character.track_velocity(velocity, b.context.now)
 	return b.character.aim_point(muzzle, at, velocity, travel_speed, b.shots_fired)
 
 
@@ -175,10 +179,15 @@ static func hold_range(
 	if distance < 0.001:
 		return DotNpcAiNode.Status.RUNNING
 
+	if b.character != null and b.character.is_hesitating(b.npc.target_since, ctx.now):
+		b.halt()
+		b.face(to)
+		return DotNpcAiNode.Status.RUNNING
+
 	var toward := to / distance
 	var side := Vector3(-toward.z, 0.0, toward.x)
 	var period := 2.5 + 2.0 * DotNpcAiNode.deterministic_unit(b.npc.seed, 4421)
-	var drift := 1.0 if fmod(ctx.now / period, 2.0) < 1.0 else -1.0
+	var drift := b.character.strafe_drift(ctx.now, period) if b.character != null else (1.0 if fmod(ctx.now / period, 2.0) < 1.0 else -1.0)
 	var wanted := side * drift * 0.6
 
 	if distance > far:
@@ -213,7 +222,12 @@ static func _hurt_by(b: DotNpcAiBrain, by: StringName, amount: float) -> void:
 		return
 
 	if not b.npc.has_target():
-		b.face(at - b.npc.position())
+		var delay := b.character.hurt_turn_delay(b.context.tick_index * 17 + by.hash()) if b.character != null else 0.0
+		if delay > 0.0:
+			b._hurt_look_at = at
+			b._hurt_look_due = b.context.now + delay
+		else:
+			b.face(at - b.npc.position())
 		return
 
 	if b.character == null or b.character.vengefulness <= 0.0:
@@ -239,6 +253,10 @@ static func surround(
 
 	if center == Vector3.INF:
 		return DotNpcAiNode.Status.FAILURE
+
+	if b.character != null and b.character.is_hesitating(b.npc.target_since, b.context.now):
+		b.halt()
+		return DotNpcAiNode.Status.RUNNING
 
 	var here := b.npc.position()
 	var group: Array

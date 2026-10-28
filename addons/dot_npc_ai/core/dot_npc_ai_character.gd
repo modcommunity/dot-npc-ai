@@ -117,6 +117,24 @@ const MASK := 0x7FFFFFFFFFFFFFFF
 ## look like it is following rather than locked on.
 @export_range(0.05, 1.0, 0.01) var view_factor: float = 0.6
 
+## How far a big turn onto a target swings past it before coming back; 0 is none.
+@export_range(0.0, 1.0, 0.01) var overshoot: float = 0.4
+
+## Seconds before the aim notices a target changed velocity (it leads with the old one meanwhile).
+@export_range(0.0, 0.5, 0.01) var track_lag: float = 0.05
+
+## How irregular strafing is: uneven lengths, pauses, easing at a reversal; 0 is the plain metronome.
+@export_range(0.0, 1.0, 0.01) var strafe_jitter: float = 0.5
+
+## How often an idle NPC holding a place turns its head aside and holds the look; 0 never.
+@export_range(0.0, 1.0, 0.01) var glance: float = 0.5
+
+## Seconds it may stand still on first sighting somebody; never longer than the reaction itself.
+@export_range(0.0, 2.0, 0.01) var hesitate: float = 0.2
+
+## Seconds before an idle NPC that was hit turns toward the shooter; 0 is instant.
+@export_range(0.0, 1.0, 0.01) var hurt_delay: float = 0.15
+
 @export_group("Fighting")
 
 ## How readily this closes with an enemy rather than holding position.
@@ -157,6 +175,13 @@ const MASK := 0x7FFFFFFFFFFFFFFF
 @export_range(0.0, 1.0, 0.01) var walker: float = 0.3
 
 @export var meta: Dictionary = {}
+
+var _vel_est: Vector3 = Vector3.ZERO
+var _vel_at: float = -1.0
+var _peak_turn: float = 0.0
+var _over_amt: float = 0.0
+var _over_axis: Vector3 = Vector3.UP
+var _turns: int = 0
 
 
 # --- Presets ------------------------------------------------------------------
@@ -289,6 +314,67 @@ func sight_range(base: float) -> float:
 	return base * alertness
 
 
+## How long it stands still after committing to a target at [param seen_at]. Capped by the
+## effective reaction, so it only fills time the NPC was not going to act in anyway.
+func hesitation(seen_at: float) -> float:
+	if hesitate <= 0.0:
+		return 0.0
+	var h := hesitate * (0.3 + 0.7 * unit(int(seen_at * 1000.0) + 0x51ed))
+	return minf(h, effective_reaction(seen_at))
+
+
+func is_hesitating(seen_at: float, now: float) -> bool:
+	return hesitate > 0.0 and now - seen_at < hesitation(seen_at)
+
+
+## Delay before turning toward a shooter, the same for the same hit tick.
+func hurt_turn_delay(hit_salt: int) -> float:
+	if hurt_delay <= 0.0:
+		return 0.0
+	return hurt_delay * (0.6 + 0.8 * unit(hit_salt + 0x7e11))
+
+
+## Strafe direction in [-1, 1] at [param now] for a nominal half-[param period]. Exactly the
+## plain alternating square wave at 0 [member strafe_jitter]; above it the lengths vary, there
+## are pauses, and a reversal eases through zero instead of flipping.
+func strafe_drift(now: float, period: float) -> float:
+	var base := 1.0 if fmod(now / period, 2.0) < 1.0 else -1.0
+	if strafe_jitter <= 0.0:
+		return base
+	var p1 := unit(0x2a) * TAU
+	var p2 := unit(0x2b) * TAU
+	var v := sin(TAU * now / (period * 2.0) + p1) + 0.7 * sin(TAU * now / (period * 3.4) + p2)
+	var eased := signf(v) * clampf((absf(v) - 0.25) * 2.0, 0.0, 1.0)
+	return lerpf(base, eased, strafe_jitter)
+
+
+## Yaw offset in radians an idle NPC holding a place looks aside by at [param now]; 0 most of the
+## time. Windows of 3 to 6 seconds, each with a look (chance [member glance]) held 0.8 to 1.6s.
+func glance_offset(now: float) -> float:
+	if glance <= 0.0:
+		return 0.0
+	var window := 4.5
+	var k := int(floor(now / window))
+	var start := float(k) * window
+	if unit(k * 7 + 0x61) >= glance:
+		return 0.0
+	var hold := 0.8 + 0.8 * unit(k * 7 + 0x62)
+	var at := 3.0 * 0.5 * unit(k * 7 + 0x63)
+	if now < start + at or now > start + at + hold:
+		return 0.0
+	var side := 1.0 if unit(k * 7 + 0x64) < 0.5 else -1.0
+	return side * deg_to_rad(35.0 + 55.0 * unit(k * 7 + 0x65))
+
+
+## Feeds the velocity the aim leads with; call each think while there is a target.
+func track_velocity(velocity: Vector3, now: float) -> void:
+	if track_lag <= 0.0 or _vel_at < 0.0 or now - _vel_at > 1.0 or now < _vel_at:
+		_vel_est = velocity
+	else:
+		_vel_est = _vel_est.lerp(velocity, 1.0 - exp(-(now - _vel_at) / track_lag))
+	_vel_at = now
+
+
 # --- Aiming -------------------------------------------------------------------
 
 ## The widest this character misses by, in radians.
@@ -321,7 +407,8 @@ func aim_point(
 		# skill of 0.4 and exact leading above 0.8; a fraction is the same curve
 		# without two cliffs in it, and a bot at 0.5 that leads half as far as it
 		# should misses behind a runner, which is what a mediocre player does.
-		aim += target_velocity * flight * aim_skill
+		var lead := _vel_est if (track_lag > 0.0 and _vel_at >= 0.0) else target_velocity
+		aim += lead * flight * aim_skill
 
 	var spread := aim_error()
 
@@ -368,9 +455,21 @@ func turn_view(current: Vector3, wanted: Vector3, delta: float) -> Vector3:
 
 	var from := current.normalized()
 	var to := wanted.normalized()
+
+	if _over_amt > 0.001:
+		_over_amt *= exp(-delta * 3.0)
+		to = to.rotated(_over_axis, _over_amt)
+
 	var angle := from.angle_to(to)
+	_peak_turn = maxf(_peak_turn, angle)
+
+	if _peak_turn >= 0.35 and angle <= _peak_turn * 0.15:
+		to = _arm_overshoot(to, from, _peak_turn)
+		_peak_turn = 0.0
+		angle = from.angle_to(to)
 
 	if angle <= 0.0001:
+		_peak_turn = 0.0
 		return to
 
 	# Eased, then clamped. The ease is what makes tracking look like following; the
@@ -381,6 +480,7 @@ func turn_view(current: Vector3, wanted: Vector3, delta: float) -> Vector3:
 	var step := minf(wanted_step, limit)
 
 	if step >= angle:
+		_peak_turn = 0.0
 		return to
 
 	var axis := from.cross(to)
@@ -395,6 +495,20 @@ func turn_view(current: Vector3, wanted: Vector3, delta: float) -> Vector3:
 		axis = Vector3.UP if absf(from.dot(Vector3.UP)) < 0.99 else Vector3.RIGHT
 
 	return from.rotated(axis.normalized(), step)
+
+
+## Near the end of a big turn (the ease never quite arrives), aim a little past the target; the
+## shifted target then decays back so the view returns.
+func _arm_overshoot(to: Vector3, from: Vector3, peak: float) -> Vector3:
+	if overshoot <= 0.0 or _over_amt > 0.001:
+		return to
+	var axis := from.cross(to)
+	if axis.length_squared() <= 0.000001:
+		return to
+	_turns += 1
+	_over_axis = axis.normalized()
+	_over_amt = minf(peak, 1.57) * overshoot * (0.15 + 0.25 * unit(_turns * 13 + 0x71))
+	return to.rotated(_over_axis, _over_amt)
 
 
 ## Whether this character takes a shot it is otherwise able to take.
@@ -474,6 +588,12 @@ func to_dictionary() -> Dictionary:
 		"aim_skill": aim_skill,
 		"view_turn_deg": view_turn_deg,
 		"view_factor": view_factor,
+		"overshoot": overshoot,
+		"track_lag": track_lag,
+		"strafe_jitter": strafe_jitter,
+		"glance": glance,
+		"hesitate": hesitate,
+		"hurt_delay": hurt_delay,
 		"aggression": aggression,
 		"self_preservation": self_preservation,
 		"vengefulness": vengefulness,
@@ -500,6 +620,12 @@ static func from_dictionary(data: Dictionary) -> DotResult:
 	out.aim_skill = clampf(float(data.get("aim_skill", 0.5)), 0.0, 1.0)
 	out.view_turn_deg = maxf(float(data.get("view_turn_deg", 360.0)), 1.0)
 	out.view_factor = clampf(float(data.get("view_factor", 0.6)), 0.05, 1.0)
+	out.overshoot = clampf(float(data.get("overshoot", 0.4)), 0.0, 1.0)
+	out.track_lag = clampf(float(data.get("track_lag", 0.05)), 0.0, 0.5)
+	out.strafe_jitter = clampf(float(data.get("strafe_jitter", 0.5)), 0.0, 1.0)
+	out.glance = clampf(float(data.get("glance", 0.5)), 0.0, 1.0)
+	out.hesitate = clampf(float(data.get("hesitate", 0.2)), 0.0, 2.0)
+	out.hurt_delay = clampf(float(data.get("hurt_delay", 0.15)), 0.0, 1.0)
 	out.aggression = clampf(float(data.get("aggression", 0.5)), 0.0, 1.0)
 	out.self_preservation = clampf(float(data.get("self_preservation", 0.5)), 0.0, 1.0)
 	out.vengefulness = clampf(float(data.get("vengefulness", 0.5)), 0.0, 1.0)

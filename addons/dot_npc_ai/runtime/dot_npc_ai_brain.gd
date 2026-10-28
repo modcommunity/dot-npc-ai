@@ -186,6 +186,8 @@ var _danger_at: Vector3 = Vector3.ZERO
 var _danger_extent: float = 0.0
 var _danger_until: float = -INF
 var _facing_at_tick: Vector3 = Vector3.ZERO
+var _hurt_look_at: Vector3 = Vector3.INF
+var _hurt_look_due: float = 0.0
 
 ## [member skill]'s revision when [member character] was last worked out. -1 for never.
 var _skill_revision: int = -1
@@ -336,6 +338,14 @@ func _npc_think(delta: float) -> void:
 
 	if npc != null:
 		_facing_at_tick = npc.facing()
+		if _hurt_look_at != Vector3.INF and context.now >= _hurt_look_due:
+			if not npc.has_target():
+				face(_hurt_look_at - npc.position())
+			_hurt_look_at = Vector3.INF
+		if character != null and character.track_lag > 0.0 and npc.has_target() and memory != null:
+			var entry := memory.get_entry(npc.target_id, context.now)
+			if entry != null:
+				character.track_velocity(entry.velocity, context.now)
 
 	if tree != null:
 		last_status = tree.tick(context)
