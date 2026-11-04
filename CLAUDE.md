@@ -32,7 +32,7 @@ Read the family [CLAUDE.md](../../CLAUDE.md) first; this file is only what is sp
 | `fixtures/nav_toy_level.gd` | a level built in code with one of everything the annotator looks for, and the bake DotBotNav would do |
 | `tools/annotate_map.gd` | annotates the toy or a saved map (`--source map.res --meta map_meta.json`), prints counts and the slowest slice, photographs it (`--out PREFIX`, under xvfb-run) |
 | `examples/npc_ai_scheduler_selftest.tscn` | the scheduler's suite: tiers, stagger, the budget under 1000 fake brains, the cost before and after |
-| `examples/npc_ai_utility_selftest.tscn` | the utility-AI suite (7 sections) |
+| `examples/npc_ai_utility_selftest.tscn` | the utility-AI suite |
 | `examples/npc_ai_avoidance_selftest.tscn` | the avoidance suite: head-on, corridor, crowd, tier skip, fallback, the 250-agent cost |
 | `examples/npc_ai_selftest.tscn` | the suite; its last sections run twelve real NPCs through a real physics world |
 | `tools/trace_surround.gd`, `tools/plot_trace.py` | a top-down trace of a squad moving (`TRACE_KIND=gunner` for the gunner) |

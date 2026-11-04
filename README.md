@@ -145,7 +145,7 @@ godot --headless --path . --import
 timeout 180 godot --headless --path . res://examples/npc_ai_selftest.tscn
 ```
 
-313 checks, exits non-zero on failure.
+The suite `npc_ai_selftest` exits non-zero on failure; the other suites are listed in CLAUDE.md.
 
 ## Licence
 
