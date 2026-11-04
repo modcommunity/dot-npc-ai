@@ -774,3 +774,68 @@ class FakeCvar:
 		value = text
 		changed.emit(old, text)
 		return true
+
+
+const STEER_TICKS := 2000
+const STEER_BRAIN := "res://addons/dot_npc_ai/runtime/dot_npc_ai_steer_brain.gd"
+
+
+## The steer brain's gather/decide/apply split: a hash of 2000 ticks of a crowd that wanders, then chases, with decide inline twice
+## and on two workers under DotParallel.verify.
+func _test_steer_brain_split() -> void:
+	_section("steer brain split think")
+
+	var verify_before := DotParallel.verify
+	DotParallel.verify = true
+	var failures_before := DotParallel.verify_failures
+	var off := _steer_run(0)
+	var off_again := _steer_run(0)
+	var on := _steer_run(2)
+	DotParallel.verify = verify_before
+
+	_check(off[1] > 0 and off[2] > 1, "the crowd moved and the hash covers distinct places", "%s" % [off])
+	_check(off[0] == off_again[0], "off against off: the same hash of 2000 ticks", "%d vs %d" % [off[0], off_again[0]])
+	_check(on[0] == off[0], "workers 2 against off: the same hash",
+		"%d vs %d%s" % [on[0], off[0], "" if DotParallel.resolve_workers(2) > 0 else " (no threads here: inline)"])
+	_check(DotParallel.verify_failures == failures_before, "and verify found no task that differs between runs")
+	_done()
+
+
+## Returns [hash, NPCs that moved, distinct places] of one scripted run.
+func _steer_run(workers: int) -> Array:
+	var spawner := _spawner()
+	spawner.limits.world_budget = 0
+	spawner.limits.per_kind_cap = 0
+	var def := DotNpcDef.make(&"crowd", BODY)
+	def.brain_script_path = STEER_BRAIN
+	def.require_line_of_sight = false
+	def.sight_half_angle_deg = 180.0
+	def.sight_range = 60.0
+	def.meta = {"speed": 4.0}
+	spawner.catalogue.add(def)
+	spawner.think_workers = workers
+	var npcs: Array = []
+
+	for i in 16:
+		var npc := spawner.spawn(&"crowd", Vector3(i % 4 * 1.0 - 2.0, 0, i / 4 * 1.0 - 2.0))
+		if npc != null:
+			npcs.append(npc)
+
+	for t in STEER_TICKS:
+		if t == 1000:
+			spawner.set_candidates([DotNpcSenses.Candidate.new(&"player", Vector3(0, 0, -20), &"player")])
+		spawner.tick(1.0 / 60.0)
+
+	var h := 0
+	var moved := 0
+	var distinct := {}
+
+	for npc in npcs:
+		var p: Vector3 = npc.position()
+		h = hash([h, snappedf(p.x, 0.001), snappedf(p.z, 0.001)])
+		distinct[Vector2(snappedf(p.x, 0.01), snappedf(p.z, 0.01))] = true
+		if p.length() > 0.5:
+			moved += 1
+
+	spawner.queue_free()
+	return [h, moved, distinct.size()]
