@@ -377,6 +377,26 @@ func _annotator(mesh: NavigationMesh, level: Node3D) -> DotNpcAiNavAnnotator:
 	return job
 
 
+func _test_nav_hand_links() -> void:
+	_section("hand-made nav links")
+	var h := DotNpcAiNavHandLinks.new()
+	var a := h.add(Vector3(0, 0, 0), Vector3(0, 4, 0), DotNpcAiNavAnnotations.LINK_LADDER, -1.0, 0, true)
+	var b := h.add(Vector3(5, 0, 0), Vector3(9, -2, 0), DotNpcAiNavAnnotations.LINK_DROP)
+	_check(a == 1 and b == 3 and h.links.size() == 3, "a two-way link adds both directions with their own ids")
+	_check(h.add(Vector3.ONE, Vector3.ONE, 0) == 0 and h.add(Vector3.ZERO, Vector3.UP, -1) == 0, "a zero-length or negative-kind link is refused")
+	_check(is_equal_approx(float(h.get_link(a)["cost"]), 4.0), "the default cost is the length")
+	_check(h.nearest(Vector3(8.5, -2, 0)) == b and h.nearest(Vector3(50, 0, 0)) == 0, "nearest finds a link by either end, within range only")
+	var back := DotNpcAiNavHandLinks.from_dict(JSON.parse_string(JSON.stringify(h.to_dict())))
+	_check(back.ok and (back.value as DotNpcAiNavHandLinks).links.size() == 3, "it round-trips through JSON")
+	var r: DotNpcAiNavHandLinks = back.value
+	_check(r.remove(a) and not r.remove(a) and r.links.size() == 2, "remove takes one link once")
+	_check(r.add(Vector3.ZERO, Vector3.UP * 3.0, 3) == 4, "ids are not reused after a load or a remove")
+	_check(not DotNpcAiNavHandLinks.from_dict({"version": 99}).ok and not DotNpcAiNavHandLinks.from_dict({"version": 1, "links": [[1]]}).ok, "another version or a short row is refused")
+	var ann := DotNpcAiNavAnnotations.new()
+	_check(h.apply_to(ann) == 3 and h.apply_to(ann) == 0 and ann.links.size() == 3, "apply_to copies once and never doubles")
+	_done()
+
+
 func _test_nav_annotations() -> void:
 	_section("navigation annotations on a level built in code")
 
