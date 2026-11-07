@@ -3,11 +3,11 @@ extends "res://examples/selftest/world_tests.gd"
 ## Proves the tree resumes, the machine cannot spin, and a brain drives a real NPC: `godot --headless --path . res://examples/npc_ai_selftest.tscn`.
 ## The checks that matter are about RUNNING, which hand-written trees get wrong silently: a sequence does not re-run a finished child, a reactive selector aborts the branch it took over from, a repeater with a synchronous child does not hang.
 
-const CHECKS := 468
+const CHECKS := 477
 
 ## Sections entered against sections that ran to their last line, and against this. A runtime error aborts a section silently, and one that bailed after a failed guard counts as not finished on purpose.
 ## The CHECKS total is the other half; see docs/testing.md.
-const SECTIONS := 45
+const SECTIONS := 46
 
 
 func _ready() -> void:
@@ -65,6 +65,7 @@ func _run() -> void:
 	_test_squad_pull_interval()
 	_test_heatmap()
 	_test_ranged_and_roles()
+	_test_nav_hand_links()
 	await _test_nav_annotations()
 	await _test_nav_annotator_budget()
 
