@@ -337,6 +337,56 @@ func _character_gate(normal: DotNpcAiCharacter, worst: DotNpcAiCharacter) -> voi
 	_check(normal.seed_value != 4242, "without touching the preset it came from")
 
 
+func _test_character_from_percentiles() -> void:
+	_section("character from recorded percentiles")
+
+	var stats := {
+		"reaction": {"p20": 0.2, "p50": 0.3, "p80": 0.6},
+		"aim_error": {"p20": 2.0, "p50": 4.0, "p80": 8.0},
+		"tracking": {"p20": 3.0, "p50": 6.0, "p80": 9.0},
+		"time_to_kill": {"p20": 1.0, "p50": 2.0, "p80": 4.0},
+	}
+	var easy := DotNpcAiCharacter.from_percentiles(stats, "easy")
+	var norm := DotNpcAiCharacter.from_percentiles(stats)
+	var hard := DotNpcAiCharacter.from_percentiles(stats, "hard")
+	_check(easy.ok and norm.ok and hard.ok, "a dictionary of percentiles gives a character per tier")
+	var e: DotNpcAiCharacter = easy.value
+	var n: DotNpcAiCharacter = norm.value
+	var h: DotNpcAiCharacter = hard.value
+	_check(is_equal_approx(n.reaction_time, 0.3), "normal reacts like the median person")
+	_check(e.reaction_time > n.reaction_time and n.reaction_time > h.reaction_time, "easy is the slow end of people, hard the fast")
+	_check(e.aim_accuracy < n.aim_accuracy and n.aim_accuracy < h.aim_accuracy, "and aims worse, then better")
+	_check(is_equal_approx(n.aim_accuracy, 1.0 - 4.0 / DotNpcAiCharacter.MAX_AIM_ERROR_DEG), "aim error maps onto the widest miss")
+	_check(e.aim_skill < h.aim_skill, "tracking error sets how much of a mover is led")
+	_check(n.validate().ok and e.validate().ok and h.validate().ok, "and they validate")
+	_check(n.aggression == DotNpcAiCharacter.normal().aggression, "personality stays the preset's: people's stats are ability only")
+
+	var fast := {"reaction": {"p50": 0.0}, "aim_error": {"p50": 0.0}, "tracking": {"p50": 0.0}}
+	var f: DotNpcAiCharacter = DotNpcAiCharacter.from_percentiles(fast).value
+	var worst := DotNpcAiCharacter.nightmare()
+	_check(f.reaction_time >= worst.reaction_time and f.aim_accuracy <= worst.aim_accuracy and f.aim_skill <= worst.aim_skill, "never better than nightmare")
+
+	var part: DotNpcAiCharacter = DotNpcAiCharacter.from_percentiles({"reaction": {"p50": NAN}, "aim_error": {"p50": 6.0}}).value
+	_check(part.reaction_time == DotNpcAiCharacter.normal().reaction_time, "a NaN value leaves the preset's number")
+	_check(part.aim_skill == DotNpcAiCharacter.normal().aim_skill, "and so does a missing metric")
+	_check(not DotNpcAiCharacter.from_percentiles({}).ok, "nothing usable is an error, not a default NPC")
+	_check(not DotNpcAiCharacter.from_percentiles(42).ok, "and so is something that is not percentiles")
+
+	var duck := FakeStats.new()
+	duck.table = stats
+	var d := DotNpcAiCharacter.from_percentiles(duck, "hard")
+	_check(d.ok and is_equal_approx((d.value as DotNpcAiCharacter).reaction_time, 0.2), "an object with percentiles() is read, no import of its class")
+	_done()
+
+
+class FakeStats:
+	extends RefCounted
+	var table: Dictionary = {}
+
+	func percentiles() -> Dictionary:
+		return table
+
+
 func _test_character_aim() -> void:
 	_section("character aim")
 

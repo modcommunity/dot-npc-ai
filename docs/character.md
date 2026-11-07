@@ -14,6 +14,10 @@ Three of the fields do work rather than describe intent, and they are the reason
 
 `nightmare()` deliberately keeps a reaction time above zero and an accuracy below one. A bot that reacts instantly and never misses is not a harder opponent, it is a different game, and every shooter that shipped one patched it out.
 
+## A character from recorded people
+
+`DotNpcAiCharacter.from_percentiles(stats, tier)` builds a preset-based character whose reaction time, aim accuracy and aim skill come from the percentiles of recorded players (`reaction`, `aim_error`, `tracking`, each `{p20, p50, p80}`): easy takes the slow end (p80), normal the median, hard the fast end (p20). It takes a Dictionary or any object with `percentiles()` (dot-bot's `DotBotAimStats`), duck typed so neither addon names the other. Values are clamped to nightmare's floors, a missing or NaN metric keeps the preset's number, and personality is never touched. Suite: `_test_character_from_percentiles`.
+
 ## The reaction clock is `target_since`, not `engaged_at`
 
 `DotNpcAiBrain.has_reacted()` measures from `DotNpcInstance.target_since`, which dot-npc sets when `target_id` **changes** and not while it is held, including re-perceiving the *same* target after a gap (not a new commitment; restarting the clock would mean an NPC never finishes reacting to somebody who keeps stepping behind a pillar). `engaged_at` is refreshed on every pass the target is perceived, because it answers "is this NPC still busy"; measuring from it kept the gate shut for ever. The story is in [history.md](history.md#has_reacted-was-false-for-ever).
