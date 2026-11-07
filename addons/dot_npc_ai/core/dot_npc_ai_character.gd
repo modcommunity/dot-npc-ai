@@ -202,6 +202,49 @@ static func preset(preset_name: String) -> DotNpcAiCharacter:
 
 
 
+## Which percentile of the people (sorted fast to slow, so a high one is the slow end) each tier takes.
+const STATS_TIERS := {"easy": "p80", "normal": "p50", "hard": "p20"}
+
+## A character whose reaction and aim come from recorded people, on top of the [param tier] preset (easy, normal or hard).
+## [param stats] is `{metric: {"p20": x, "p50": x, "p80": x}}` or any object with a `percentiles()` returning one (dot-bot's `DotBotAimStats`), duck typed so neither addon names the other.
+## Metrics: `reaction` (seconds, to [member reaction_time]), `aim_error` (degrees, to [member aim_accuracy]), `tracking` (degrees on a mover, to [member aim_skill]). A missing or NaN value keeps the preset's number; nothing goes past nightmare.
+static func from_percentiles(stats: Variant, tier: String = "normal") -> DotResult:
+	var table: Variant = stats
+	if stats is Object and (stats as Object).has_method(&"percentiles"):
+		table = (stats as Object).call(&"percentiles")
+	if not table is Dictionary:
+		return DotResult.fail(DotError.CODE_INVALID, "Percentiles must be a Dictionary or have percentiles().", tier)
+	var key: String = STATS_TIERS.get(tier.strip_edges().to_lower(), "p50")
+	var out := preset(tier)
+	var best := nightmare()
+	var used := 0
+	var reaction := _stat(table, "reaction", key)
+	if not is_nan(reaction):
+		out.reaction_time = clampf(reaction, best.reaction_time, 5.0)
+		used += 1
+	var err := _stat(table, "aim_error", key)
+	if not is_nan(err):
+		out.aim_accuracy = clampf(1.0 - err / MAX_AIM_ERROR_DEG, 0.0, best.aim_accuracy)
+		used += 1
+	var track := _stat(table, "tracking", key)
+	if not is_nan(track):
+		out.aim_skill = clampf(1.0 - track / MAX_AIM_ERROR_DEG, 0.0, best.aim_skill)
+		used += 1
+	if used == 0:
+		return DotResult.fail(DotError.CODE_INVALID, "No usable reaction, aim_error or tracking percentile.", tier)
+	out.id = StringName("people_" + String(out.id))
+	out.display_name = "People (%s)" % out.display_name
+	return DotResult.success(out)
+
+
+static func _stat(table: Dictionary, metric: String, key: String) -> float:
+	var row: Variant = table.get(metric)
+	if not row is Dictionary or not (row as Dictionary).has(key):
+		return NAN
+	var v: Variant = (row as Dictionary)[key]
+	return float(v) if v is float or v is int else NAN
+
+
 ## Whether enough time has passed since [param seen_at] for this NPC to act.
 ## [param seen_at] is when the NPC committed to the target (`DotNpcInstance.target_since`), NOT `engaged_at`, which refreshes on every sighting and never lets a reaction elapse.
 ## A [member reaction_time] of zero or less answers true at once, for scripted NPCs.
