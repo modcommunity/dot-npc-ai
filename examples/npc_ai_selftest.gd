@@ -7,7 +7,7 @@ const CHECKS := 491
 
 ## Sections entered against sections that ran to their last line, and against this. A runtime error aborts a section silently, and one that bailed after a failed guard counts as not finished on purpose.
 ## The CHECKS total is the other half; see docs/testing.md.
-const SECTIONS := 46
+const SECTIONS := 47
 
 
 func _ready() -> void:
