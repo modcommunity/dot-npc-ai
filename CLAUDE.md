@@ -39,7 +39,7 @@ Read the family [CLAUDE.md](../../CLAUDE.md) first; this file is only what is sp
 
 ## Running and testing
 
-- Link `addons/dot_core` and `addons/dot_npc` from their repos once ([development setup](../../docs/development-setup.md)), then the family's two steps ([game-dev/CLAUDE.md](../../CLAUDE.md#validating-anything)) and `timeout 180 godot --headless --path . res://examples/npc_ai_selftest.tscn`. It exits non-zero on failure and takes tens of seconds because of the physics sections.
+- Link `addons/dot_core` and `addons/dot_npc` from their repos once ([development setup](../../docs/development-setup.md)), then the family's two steps ([family CLAUDE.md](../../CLAUDE.md#validating-anything)) and `timeout 180 godot --headless --path . res://examples/npc_ai_selftest.tscn`. It exits non-zero on failure and takes tens of seconds because of the physics sections.
 - **Any change to how a squad moves wants the trace plotted and looked at.** The first surround heaped with every check passing. [tactics](docs/tactics.md#everything-is-automatic-once-the-director-carries-it)
 - A change to the brain is not done until the games that use it (game-arena, game-g2gfast, game-playground) still pass; `has_reacted` being false for ever was found from a game.
 
