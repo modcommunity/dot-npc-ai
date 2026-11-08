@@ -97,11 +97,11 @@ func _path_goal(to: Vector3) -> Vector3:
 
 	var sched := _sched()
 	if sched == null or not sched.config.enabled:
-		return _as_goal(director.call(&"path_toward", npc, path, to))
+		return _asked_goal(to)
 
 	var capped := sched.config.cap_tier0_paths
 	if sched.tier_of(self) == 0 and not capped:
-		return _as_goal(director.call(&"path_toward", npc, path, to))
+		return _asked_goal(to)
 
 	var reuse := sched.config.path_reuse_m
 	if sched.tick < _pg_until and _pg_to.distance_squared_to(to) <= reuse * reuse:
@@ -117,6 +117,38 @@ func _path_goal(to: Vector3) -> Vector3:
 		_pg_to = to
 		_pg_goal = goal
 		_pg_until = sched.tick + sched.config.path_cache_ticks
+	return goal
+
+
+## [code]path_toward[/code] through the opt-in reuse of [member path_reuse_thoughts]; with it 0 exactly the call.
+func _asked_goal(to: Vector3) -> Vector3:
+	if path_reuse_thoughts <= 0 or path == null:
+		return _as_goal(director.call(&"path_toward", npc, path, to))
+
+	var here := npc.position()
+
+	if _pr_left > 0 and not path.is_empty() and path.index == _pr_index and path.computed_at == _pr_at \
+			and _pr_to.distance_squared_to(to) <= path_reuse_goal_m * path_reuse_goal_m \
+			and _pr_from.distance_squared_to(here) <= path_reuse_dev_m * path_reuse_dev_m:
+		var flat := _pr_goal - here
+		flat.y = 0.0
+
+		if flat.length() > path.arrive_radius:
+			_pr_left -= 1
+			_waypoint = _pr_goal
+			return _pr_goal
+
+	var goal := _as_goal(director.call(&"path_toward", npc, path, to))
+	_pr_left = 0
+
+	if goal != Vector3.INF and not path.is_finished():
+		_pr_left = path_reuse_thoughts
+		_pr_to = to
+		_pr_from = here
+		_pr_goal = goal
+		_pr_index = path.index
+		_pr_at = path.computed_at
+
 	return goal
 
 

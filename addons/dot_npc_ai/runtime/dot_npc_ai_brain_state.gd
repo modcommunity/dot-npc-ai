@@ -114,6 +114,24 @@ var cruise_between_thinks: bool = true
 ## The utility scorer, or null (the default: off). See [method use_utility].
 var utility: DotNpcAiUtility = null
 
+## Opt-in (0, the default, asks the director's path every think): how many consecutive thinks may steer for the
+## waypoint the last [code]path_toward[/code] returned instead of asking again. A think asks afresh as soon as the
+## destination has moved more than [member path_reuse_goal_m], the NPC has strayed more than [member path_reuse_dev_m]
+## from where the waypoint was found, the waypoint is reached, or the path was replaced or advanced behind the brain's back.
+var path_reuse_thoughts: int = 0
+
+## See [member path_reuse_thoughts]: how far the destination may drift (metres) before the waypoint is asked for again.
+var path_reuse_goal_m: float = 3.0
+
+## See [member path_reuse_thoughts]: how far the NPC may be from where the waypoint was found (metres).
+var path_reuse_dev_m: float = 2.0
+
+var _pr_left: int = 0
+var _pr_to: Vector3 = Vector3.ZERO
+var _pr_from: Vector3 = Vector3.ZERO
+var _pr_goal: Vector3 = Vector3.INF
+var _pr_index: int = -1
+var _pr_at: float = -1.0
 var _cruise_on: bool = false
 var _thinking: bool = false
 var _step_delta: float = 0.0

@@ -259,6 +259,95 @@ func _test_squad_pull_interval() -> void:
 	_done()
 
 
+class RouteDirector extends Node:
+	var path_calls := 0
+
+	## A fixed route round a corner; counts the asks, advances like the spawner's path_toward.
+	func path_toward(npc: Object, path: Object, to: Vector3) -> Variant:
+		path_calls += 1
+		var route := path as DotNpcPath
+		var at: Vector3 = (npc as DotNpcInstance).position()
+
+		if route.is_empty() or route.is_finished() or route.goal_at_compute.distance_to(to) > 3.0:
+			route.set_points(PackedVector3Array([at, Vector3(20, 0, 0), Vector3(20, 0, 20), to]), 1.0 + path_calls, to)
+
+		return route.advance(at, to)
+
+
+func _test_path_goal_reuse() -> void:
+	_section("an opt-in reuse of the path's waypoint across thinks")
+
+	var spawner := _spawner()
+	var brain := spawner.spawn(&"plain", Vector3.ZERO).brain as DotNpcAiBrain
+	var dir := RouteDirector.new()
+	brain.director = dir
+	brain.path = DotNpcPath.new()
+	var dest := Vector3(20, 0, 40)
+
+	_check(brain.path_reuse_thoughts == 0, "reuse is off by default")
+	for i in 20:
+		brain._path_goal(dest)
+	_check(dir.path_calls == 20, "off: every think asks the director", str(dir.path_calls))
+
+	dir.path_calls = 0
+	brain.path = DotNpcPath.new()
+	brain.path_reuse_thoughts = 4
+	var first := brain._path_goal(dest)
+	var second := brain._path_goal(dest)
+	_check(second == first and dir.path_calls == 1, "on: the next think steers for the same waypoint without asking", str(dir.path_calls))
+	for i in 18:
+		brain._path_goal(dest)
+	_check(dir.path_calls == 4, "and asks again after the allowed thinks (20 thinks, 4 reused per ask)", str(dir.path_calls))
+
+	var before := dir.path_calls
+	brain._path_goal(dest + Vector3(10, 0, 0))
+	_check(dir.path_calls == before + 1, "a destination that moved past path_reuse_goal_m asks at once")
+
+	brain._path_goal(dest + Vector3(10, 0, 0))
+	before = dir.path_calls
+	brain.npc.node.global_position = Vector3(0, 0, 5)
+	brain._path_goal(dest + Vector3(10, 0, 0))
+	_check(dir.path_calls == before + 1, "an NPC that strayed past path_reuse_dev_m asks at once")
+
+	brain._path_goal(dest + Vector3(10, 0, 0))
+	before = dir.path_calls
+	brain.path.clear()
+	brain._path_goal(dest + Vector3(10, 0, 0))
+	_check(dir.path_calls == before + 1, "a cleared path asks at once")
+
+	brain._path_goal(dest + Vector3(10, 0, 0))
+	before = dir.path_calls
+	brain.path.go_rough(5.0)
+	brain._path_goal(dest + Vector3(10, 0, 0))
+	_check(dir.path_calls == before + 1, "a path made rough (stuck repath) asks at once")
+
+	# Equivalence on a walk: reuse changes how often the director is asked, not where the NPC ends up.
+	var ends := []
+	var asks := []
+	for reuse in [0, 5]:
+		var sp := _spawner()
+		var walker := sp.spawn(&"plain", Vector3.ZERO).brain as DotNpcAiBrain
+		var d := RouteDirector.new()
+		walker.director = d
+		walker.path = DotNpcPath.new()
+		walker.path_reuse_thoughts = reuse
+		for i in 400:
+			var goal := walker._path_goal(Vector3(20, 0, 40))
+			walker.npc.node.global_position += (goal - walker.npc.position()).normalized() * 0.1
+		ends.append(walker.npc.position())
+		asks.append(d.path_calls)
+		d.free()
+		_world.remove_child(sp)
+		sp.free()
+	_check(ends[0].distance_to(ends[1]) < 1.5, "a 40 m walk round a corner ends within 1.5 m with reuse on or off", str(ends))
+	_check(asks[1] < asks[0] / 2, "while asking the director less than half as often", str(asks))
+
+	dir.free()
+	_world.remove_child(spawner)
+	spawner.free()
+	_done()
+
+
 func _test_throttled_cruise() -> void:
 	_section("a throttled NPC keeps walking between thinks")
 
