@@ -40,3 +40,5 @@ A throttled brain keeps walking the last point it steered at (`cruise_between_th
 The scheduler is wired by dot-game, not by each game: `DotGameModule.attach_npc_lod(spawner)` builds it behind the `npc_lod*` cvars (default off, listed in the workbench as "NPC level of detail"). Zombie Zone attaches it; the other NPC games call the same one line.
 
 The other four NPC games have not attached it yet.
+
+**Path reuse without a scheduler (opt-in, `path_reuse_thoughts`, default 0 = off).** A brain asks the director's `path_toward` on every think. With `path_reuse_thoughts = N` it steers for the last waypoint for up to N further thinks, and asks afresh when the destination moved more than `path_reuse_goal_m` (3 m), the NPC strayed more than `path_reuse_dev_m` (2 m) from where the waypoint was found, the waypoint is reached, or the path was cleared, repathed or made rough behind its back. `examples/path_reuse_bench.tscn` (56 chasers, 1200 ticks, N=5): 0.17 of the `path_toward` calls and 0.87 of the tick time, same mean distance to the target. A scheduler's tier cache (above) still applies on top at tiers 1 and up.
