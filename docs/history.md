@@ -6,7 +6,7 @@ Bugs worth recognising if they come back. Every one parsed cleanly; most errored
 
 The gate every "act on what you see" branch belongs behind never opened. `has_reacted()` measured a reaction time from `DotNpcInstance.engaged_at`, and dot-npc refreshes that field on every pass in which the target is perceived, which is what it is for. So `now - engaged_at` was about zero on every tick an NPC could see somebody.
 
-Nothing errored: **a bot that never acts on what it sees looks like a bot that is bad rather than one that is broken**, which is why it survived a suite that tested `DotNpcAiCharacter.has_reacted` directly and correctly. The character's arithmetic was right; the field it was handed was wrong. `DotNpcInstance.target_since` was added to dot-npc for it. Found by game-playground watching a hunter sit in `ALERT` for ever; the suite now asserts that `engaged_at` moves, `target_since` does not, and `has_reacted()` becomes true.
+Nothing errored: **a bot that never acts on what it sees looks like a bot that is bad rather than one that is broken**, which is why it survived a suite that tested `DotNpcAiCharacter.has_reacted` directly and correctly. The character's arithmetic was right; the field it was handed was wrong. `DotNpcInstance.target_since` was added to dot-npc for it. Found by game-playlot watching a hunter sit in `ALERT` for ever; the suite now asserts that `engaged_at` moves, `target_since` does not, and `has_reacted()` becomes true.
 
 ## In the addon
 
@@ -20,7 +20,7 @@ Nothing errored: **a bot that never acts on what it sees looks like a bot that i
 - **`surround` aimed one tick of angle ahead**, inside the arrival distance, so a flanker never got round.
 - **The first surround heaped**, with every check passing; only the plotted trace showed it.
 - **`alertness` and `memory_time` were read by nothing**: declared, documented and carried by every preset. Two game brains authored `memory_time` per kind.
-- **A game brain's `put(&"last_seen", pos, 8.0)`** passed 8.0 as *now* and no lifetime, so its memory never expired (game-playground's hunter).
+- **A game brain's `put(&"last_seen", pos, 8.0)`** passed 8.0 as *now* and no lifetime, so its memory never expired (game-playlot's hunter).
 - **The search branch was written three times** with three hard-coded lifetimes before it became the brain's.
 - **arena's first `npc_shoot` resolved, counted and hit nobody**: a shot made by hand has no pellets.
 

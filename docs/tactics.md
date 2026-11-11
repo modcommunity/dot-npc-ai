@@ -17,7 +17,7 @@ The bar was "at least as good as the tactical single-player shooters' NPCs", and
 
 ## Everything is automatic once the director carries it
 
-`DotNpcAiSquads` and `DotNpcAiSounds` go on the spawner as metadata (two servers in one process must not share either), a definition names its squad and attack capacity in its meta (`"squad"`, `"attackers"`), and the brain senses, remembers, hears and reports with no game code. What a game writes is the tree: `claim_attack_slot()` as the attack branch's guard, `surround()` beside it, `search()` after the fight, `flee_danger()` first. game-arena, game-g2gfast and game-playground's waves are built that way; the arena also turns every rocket in the air into a danger with its splash as the reach, and every player's shot into combat noise owned by the shooter.
+`DotNpcAiSquads` and `DotNpcAiSounds` go on the spawner as metadata (two servers in one process must not share either), a definition names its squad and attack capacity in its meta (`"squad"`, `"attackers"`), and the brain senses, remembers, hears and reports with no game code. What a game writes is the tree: `claim_attack_slot()` as the attack branch's guard, `surround()` beside it, `search()` after the fight, `flee_danger()` first. game-arena, game-g2gfast and game-playlot's waves are built that way; the arena also turns every rocket in the air into a danger with its splash as the reach, and every player's shot into combat noise owned by the shooter.
 
 `surround` aims at a point on the ring far enough ahead to be outside the arrival distance; one tick of angle ahead is a few centimetres, so a flanker arrives, stops, and never gets round.
 
@@ -44,7 +44,7 @@ The game resolves the shot. Two things about doing that through dot-combat: a sh
 **`DotNpcAiHeatKeeper` keeps one per map:** sample on an interval, save on an interval and on the way out, swap on a map change. Every game would write those lines and the one that forgets to save before swapping trains map B on map A's corridors.
 
 - **Re-adopting the map it already holds reloads without saving first.** A game turns persistence on after the map was adopted with it off (arena's horde is built before its server module loads); saving there would overwrite the file with the few seconds learned since, and a server would forget every map on every restart.
-- **Persistence is the server's decision, never the default.** Every suite builds the game, and one that saved would have each run's bots train the next run's NPCs: a suite whose results depend on how many times it has run. game-arena's and game-playground's server modules turn it on; their suites leave nothing in `user://`.
+- **Persistence is the server's decision, never the default.** Every suite builds the game, and one that saved would have each run's bots train the next run's NPCs: a suite whose results depend on how many times it has run. game-arena's and game-playlot's server modules turn it on; their suites leave nothing in `user://`.
 
 ## Attack tokens
 
