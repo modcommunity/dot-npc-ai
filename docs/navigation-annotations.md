@@ -106,9 +106,9 @@ What looking found, that every count had passed: floor-level gap links across ev
 
 | Game | Next step |
 | --- | --- |
-| game-arena | After its `DotBotNav` bake, run the annotator on `nav.mesh` with the map's spawns as seeds and its pits as declared teleports, cache by key, and hand drops, jump ups and gaps to `add_ride`; its ride edges go in as declared links |
+| game-fatal-contact | After its `DotBotNav` bake, run the annotator on `nav.mesh` with the map's spawns as seeds and its pits as declared teleports, cache by key, and hand drops, jump ups and gaps to `add_ride`; its ride edges go in as declared links |
 | game-hide-n-seek | Replace HsBots' random-point survey with `hiding_spots()` for hiders, and use `cover_from` for a hider that has been seen; seekers walk the chokepoints first |
 | mg-prop-hunt | Override `_hide_score` to prefer spots beside props (enclosure low, a prop within a metre), and declare nothing |
 | game-zombie-zone | Hold chokepoints for the defenders; zombies take drops (never jump ups) so a tower is defensible |
 | mg-buses-from-hell | Its grid route is not a mesh; use only the spots and chokepoints, from a mesh baked for the bot's body |
-| game-g2gfast | Nothing for its timer runs; its bots ride the surf planner. Drops and gaps help a bhop course's bots between stages |
+| game-airdrift | Nothing for its timer runs; its bots ride the surf planner. Drops and gaps help a bhop course's bots between stages |
