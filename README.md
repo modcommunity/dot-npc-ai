@@ -1,26 +1,28 @@
-This is the **NPC decision** asset for TMC's **Dot** collection. It is what you add when the things that move about have to make up their minds.
+# dot-npc-ai
 
-This collection of assets provides modular building blocks for creating games and applications within the TMC ecosystem, ensuring consistency and interoperability across all `dot-*` assets. This includes core functionality, networking, authentication, cloud integration, and more.
+How NPCs make decisions in a Godot 4 game. It is the decision half of [dot-npc](https://github.com/modcommunity/dot-npc): you describe what an NPC does with a behaviour tree, a state machine, or a score-based (utility) chooser, and dot-npc-ai runs it. It also gives each NPC a character (so two NPCs on one tree behave differently), squad tactics, hearing, cover, shooting, and steering for crowds. Part of TMC's open source **Dot** collection (MIT licence).
 
-**These assets are COMPLETELY OPEN SOURCE**. You are free to use, modify, and distribute them under the terms of the MIT license. The only thing not open source is the back-end web infrastructure. So if you opt into using your own authentication backend instead of integrating with TMC, you will need to build and integrate your own back-end infrastructure.
+> Built with Claude Code. Every addon has a headless test suite and the suites pass, but little of this has met real players yet. Please report rough edges.
 
-## From Maintainer & WARNING
-This asset, along with all the others, was built initially with **Claude Code** and will continue to be maintained and extended using it. This is because I (`gamemann`) cannot build the entire TMC platform alone (I wish I could lol).
+## Install
 
-**Please treat this as partially tested.** Every asset has its own headless test suite and those suites pass, but very little of this has been in front of real players yet. Expect rough edges, and please report anything you run into.
+Copy `addons/dot_npc_ai/`, `addons/dot_npc/` and [dot-core](https://github.com/modcommunity/dot-core)'s `addons/dot_core/` into your project and enable them under **Project > Project Settings > Plugins**. Only the brain class touches dot-npc.
 
-I intend on reviewing code, testing, and editing documentation regularly. If you're interested in helping out, please let me know!
+## What is in it
 
-## Behaviour, for NPCs
-**The decision half of [dot-npc](https://github.com/modcommunity/dot-npc).** A behaviour tree with real running-state memory, a state machine for the many cases a tree is overkill for, a per-NPC blackboard that forgets, and the steering a crowd needs.
+| Piece | What it does | More |
+| --- | --- | --- |
+| Behaviour tree (`DotNpcAiSelector`, `DotNpcAiSequence`, `DotNpcAiLeaf`, decorators, `DotNpcAiParallel`) | Picks what to do each tick and remembers what was running. | [docs/decisions.md](docs/decisions.md) |
+| State machine (`DotNpcAiMachine`, `DotNpcAiState`) | For NPCs that are simpler than a tree. | [docs/decisions.md](docs/decisions.md) |
+| Blackboard (`DotNpcAiBlackboard`) | Per-NPC memory whose entries expire. | [docs/decisions.md](docs/decisions.md) |
+| Utility scoring (`DotNpcAiUtility`, `DotNpcAiCurve`, `DotNpcAiPersonality`) | Scores actions with response curves and picks one without flip-flopping. | [docs/utility.md](docs/utility.md) |
+| Character and skill (`DotNpcAiCharacter`, `DotNpcAiSkill`) | Per-NPC reaction time, aim, memory, aggression. Server-wide difficulty. | [docs/character.md](docs/character.md) |
+| Tactics (`DotNpcAiSquads`, `DotNpcAiSounds`, `DotNpcAiMemory`, `DotNpcAiHeatmap`) | Squads, hearing, cover, shooting, learned player routes. | [docs/tactics.md](docs/tactics.md) |
+| Steering and avoidance (`DotNpcAiSteering`, `DotNpcAiAvoidance`, `DotNpcAiCrowdGrid`) | Spacing and local avoidance for crowds. Opt in. | [docs/avoidance.md](docs/avoidance.md) |
+| Scheduler (`DotNpcAiScheduler`) | Thinks less often for NPCs far from players. Opt in. | [docs/scheduler.md](docs/scheduler.md) |
+| Map annotation (`DotNpcAiNavAnnotator`) | Finds jump and drop links, cover, hiding spots and chokepoints from a baked navigation mesh. | [docs/navigation-annotations.md](docs/navigation-annotations.md) |
 
-Depends on **dot-core** and **dot-npc**.
-
-## Installing
-
-Copy `addons/dot_npc_ai/`, `addons/dot_npc/` and [`dot-core`](https://github.com/modcommunity/dot-core)'s `addons/dot_core/` into your project, and enable them in *Project → Project Settings → Plugins*.
-
-## Five minutes
+## Quick start
 
 ```gdscript
 extends "res://addons/dot_npc_ai/runtime/dot_npc_ai_brain.gd"
@@ -37,7 +39,6 @@ func _build() -> void:
         .when(func(_c): return npc.has_target(), &"chasing")
         .after(3.0, &"idle"))
 
-    # REACTIVE, because this is a guard followed by an action that never finishes.
     tree = DotNpcAiSelector.new(&"root", [
         DotNpcAiSequence.reactive_with(&"chase", [
             DotNpcAiLeaf.Condition.new(&"has a target", func(_c): return npc.has_target()),
@@ -52,100 +53,63 @@ func _chase(ctx: DotNpcAiContext) -> int:
     return DotNpcAiNode.Status.RUNNING
 ```
 
-## The rule everybody gets wrong
+## Two rules to know
 
-A node that returned RUNNING must be **resumed** next tick, not restarted. Get it wrong and nothing errors: an NPC re-opens the same door sixty times a second, or an attack never finishes because its wind-up keeps restarting. Everything looks alive and nothing completes.
+1. **A node that returned RUNNING is resumed next tick, not restarted.** The composites keep the resume position and `tick()` cannot be overridden, so you cannot get this wrong by accident.
+2. **A check followed by an action that never finishes needs a reactive sequence.** Use `DotNpcAiSequence.reactive_with()` so the check is asked again every tick. A plain sequence is for steps done in order.
 
-`tick()` is not overridable here, and the composites own the resume index, so no node can forget.
+## Characters and difficulty
 
-## The other rule, which is this addon's own trap
-
-A guard followed by an action that never finishes needs a **reactive** sequence, or the guard is asked exactly once. `DotNpcAiSequence.reactive_with()` is that. A plain sequence is for steps in order.
-
-## Character
-
-A tree decides what an NPC does. It does not make two of them feel like different people. Same tree, same NPC: they notice at the same instant and shoot with the same accuracy.
+A tree decides what an NPC does. A `DotNpcAiCharacter` decides how well. It sets reaction time, alertness, memory, aim accuracy and skill, turn rate, aggression, self-preservation, vengefulness, camping and tactics. Presets: `easy()`, `normal()`, `hard()`, `nightmare()`.
 
 ```gdscript
 brain.character = DotNpcAiCharacter.hard().with_seed(npc.instance_id)
 
 # In the "shoot at it" branch:
-if not ctx.has_reacted(npc.target_since):   # NOT engaged_at: that moves every tick it is seen
+if not ctx.has_reacted(npc.target_since):   # use target_since, not engaged_at
     return DotNpcAiNode.Status.RUNNING       # seen it, not acted on it yet
-
 var at := ctx.character.aim_point(muzzle, target.position, target.velocity, 900.0, shot)
 ```
 
-`DotNpcAiCharacter` gives an NPC a character rather than a difficulty tier, setting reaction time, alertness, memory, aim accuracy, aim skill, view turn rate, aggression, self preservation, vengefulness and a tendency to camp, with four presets from `easy()` to `nightmare()`. The character *is* the difficulty, per NPC, so a game can mix them. A catalogue can name one with `"skill": "hard"` in a definition's `meta`, and `DotNpcAiBrain` picks it up.
+A catalogue can name a preset in a definition's `meta`, for example `"skill": "hard"`. All randomness is a hash of the character's seed and a number you pass, so the same shot always misses the same way and a replay matches the server. Give each NPC its own seed.
 
-## Server-side skill
+### Server difficulty
 
-`DotNpcAiSkill` is how an operator makes every NPC on a server smarter or slower to react without editing a catalogue, and it changes live NPCs on their next tick. It **moves** each character rather than replacing it, so a brute on a hard server is still slower to notice than a stalker on the same server:
+`DotNpcAiSkill` lets a server operator make every NPC smarter or slower without editing catalogues. It moves each character toward the easy or nightmare preset instead of replacing it, and live NPCs pick the change up on their next tick. Personality is never changed.
 
 | Cvar | Default | What it does |
 | --- | --- | --- |
-| `npc_skill` | `0` | `easy`, `normal`, `hard`, `nightmare`, or a number from -1 to 1. Moves reaction time, alertness (sight range), memory, aim and turning toward the easy or the nightmare preset. 0 is as authored. Personality (aggression, self preservation, vengefulness) is never touched. |
-| `npc_reaction_scale` | `1` | Multiplies every reaction time after `npc_skill`. 0.5 reacts twice as fast. |
-| `npc_reaction_min` | `0.05` | No reaction time goes below this many seconds. 0 allows instant reactions. An NPC authored with no reaction time (a scripted one) is left alone. |
+| `npc_skill` | `0` | `easy`, `normal`, `hard`, `nightmare`, or a number from -1 to 1 (values outside are clamped). 0 is as authored. |
+| `npc_reaction_scale` | `1` | Multiplies every reaction time. 0.5 reacts twice as fast. |
+| `npc_reaction_min` | `0.05` | Lowest reaction time in seconds. 0 allows instant reactions. NPCs authored with no reaction time are left alone. |
 
 ```gdscript
-# In a dot-server module, once:
-game.npc_skill.bind_cvars(add_cvar, DotConVar.FLAG_NOTIFY)
-
-# Where the spawner is built, before the first spawn:
-game.npc_skill.attach(spawner)
+game.npc_skill.bind_cvars(add_cvar, DotConVar.FLAG_NOTIFY)   # in a dot-server module, once
+game.npc_skill.attach(spawner)                               # before the first spawn
 ```
 
-dot-server is not a dependency: `bind_cvars` takes anything shaped like `add_cvar`, and `cvar_specs()` / `set_cvar()` are there for a host that registers its own.
+dot-server is not required: `bind_cvars` accepts any function shaped like `add_cvar`.
 
-## The tactical layer
+## Tactics
 
-Attach a `DotNpcAiSquads` and a `DotNpcAiSounds` to the spawner, name a squad in the definition's meta, and every `DotNpcAiBrain` does the following with no game code:
+Attach a `DotNpcAiSquads` and a `DotNpcAiSounds` to the spawner and name a squad in a definition's `meta`. Every `DotNpcAiBrain` then, with no game code:
 
-- **Senses into conditions** each think (`SEE_ENEMY`, `NEW_ENEMY`, `ENEMY_OCCLUDED`, `LOST_ENEMY`, `LIGHT_DAMAGE`, `HEAVY_DAMAGE`, `LOW_HEALTH`, `HEAR_COMBAT`, `HEAR_DANGER`, `HEAR_ENEMY`, `SQUAD_INFORMED`, `HAS_ATTACK_SLOT`), which guards and `DotNpcAiDecorator.Interrupt` read.
-- **Remembers several enemies** in a `DotNpcAiMemory`: where, how it knows, how fast they were moving, and who has hurt it.
-- **Hears** gunfire, footsteps and danger the game emits, scaled by its alertness.
-- **Calls out** what it sees to its squad, so squadmates who have never seen you come to help.
-- **Turns** no faster than its character can.
+- turns what it senses into conditions (`SEE_ENEMY`, `NEW_ENEMY`, `LOST_ENEMY`, `LOW_HEALTH`, `HEAR_COMBAT`, `HAS_ATTACK_SLOT` and others) that guards and interrupts can read;
+- remembers several enemies: where, how it knows, how fast they moved, who hurt it;
+- hears gunfire, footsteps and danger, scaled by its alertness;
+- calls out what it sees so squadmates come to help;
+- turns no faster than its character allows.
 
-And a game's tree picks from ready-made leaves:
+Ready-made leaves for your tree: `flee_danger`, `surround`, `search`, `find_cover` and `take_cover`, `ready_to_fire`, `aim_solution`, `hold_range`, `claim_role` and `patrol_hot`. Only a squad's attackers go at the target; the others ring it. `DotNpcAiHeatmap` learns where players go and `DotNpcAiHeatKeeper` saves one per map. Details and a full tree example are in [docs/tactics.md](docs/tactics.md).
 
-```gdscript
-tree = DotNpcAiSelector.new(&"root", [
-    DotNpcAiLeaf.Action.new(&"dodge", func(c): return flee_danger(c, speed)),
-    DotNpcAiSequence.reactive_with(&"fight", [
-        DotNpcAiLeaf.Condition.new(&"target", func(_c): return npc.has_target()),
-        DotNpcAiSelector.new(&"engage", [
-            DotNpcAiSequence.reactive_with(&"attack", [
-                DotNpcAiLeaf.Condition.new(&"slot", func(_c): return claim_attack_slot()),
-                DotNpcAiLeaf.Action.new(&"close in", _close_in),
-            ]),
-            DotNpcAiLeaf.Action.new(&"surround", func(c): return surround(c, speed)),
-        ]),
-    ]),
-    DotNpcAiLeaf.Action.new(&"search", func(c): return search(c, speed)),
-    DotNpcAiLeaf.Action.new(&"wander", _wander),
-])
-```
-
-Only `"attackers"` of a squad go at one target; the rest share a ring round it, and a squad with high `tactics` centres that ring on the target's back. `search` goes where a lost enemy was heading rather than where it was last seen. `find_cover` / `take_cover` use dot-npc's generated cover spots, one NPC per spot. The character's new `tactics` trait, moved by `npc_skill`, decides how much of this an NPC uses.
-
-For NPCs that fight at range, `ready_to_fire(muzzle)` opens only when the target is seen, the reaction time has passed, the NPC has turned to face it, no squadmate is in the lane and the character's fire throttle allows it; `aim_solution(muzzle)` leads the target by the velocity the NPC itself observed and misses by its character's accuracy; `hold_range(ctx, speed, near, far)` keeps a distance band and strafes. `claim_role(role, capacity)` generalises attack slots, so a squad splits into attackers, suppressors and a flanker without anybody giving orders.
-
-`DotNpcAiHeatmap` learns where players go on a map, and `DotNpcAiHeatKeeper` keeps one per map on disk across restarts. `patrol_hot(ctx, speed)` sends NPCs with enough `tactics` to the busiest places, to wait there facing the way the traffic comes, for as long as their `camper` trait says.
-
-`tools/trace_surround.gd` and `tools/plot_trace.py` draw a squad's movement top-down, for the things a suite cannot see (`TRACE_KIND=gunner` for a ranged squad).
-
-Everything random in it is a hash of the character's seed and a number you pass, so the same shot always misses the same way, and a replay and the server that recorded it agree. Give each NPC its own seed, or twenty of them fire one volley.
-
-## Validating
+## Try it
 
 ```bash
 godot --headless --path . --import
 timeout 180 godot --headless --path . res://examples/npc_ai_selftest.tscn
 ```
 
-The suite `npc_ai_selftest` exits non-zero on failure; the other suites are listed in CLAUDE.md.
+The suite exits non-zero on failure. Other suites live in `examples/`. `tools/trace_surround.gd` and `tools/plot_trace.py` draw a squad's movement from above; `tools/annotate_map.gd` runs the map annotator on a map.
 
 ## Licence
 
