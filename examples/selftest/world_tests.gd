@@ -645,5 +645,38 @@ func _test_nav_annotator_budget() -> void:
 	var none: Array[Dictionary] = []
 	twin.annotations.links = none
 	_check(not twin._has_link_near(Vector3(1.012, 0.0, 0.0), Vector3(5.0, 0.0, 0.5), 0), "and forgets links once the list is replaced")
+
+	# The cached triangle test answers as the plain one, at the corners and just past the edges
+	# of the level's triangles, and of a sliver whose box is not trusted.
+	var asked := 0
+	var differ := ""
+	var offsets: Array[Vector3] = [Vector3.ZERO, Vector3(0.0005, 0.0, 0.0), Vector3(-0.0005, 0.0, 0.0), Vector3(0.0, 0.0, 0.0005),
+		Vector3(0.0, 0.0, -0.0005), Vector3(0.03, 0.2, -0.03), Vector3(-0.3, -0.2, 0.3), Vector3(0.7, 0.4, 0.0)]
+	var sliver := _annotator(mesh, level)
+	sliver._add_triangle(Vector3(0.0, 0.0, 0.0), Vector3(10.0, 1.0, 0.05), Vector3(10.0, 0.0, 0.0), 7)
+	sliver._add_triangle(Vector3(0.0, 0.0, 0.0), Vector3(0.0, 0.0, 1.9), Vector3(1.9, 0.5, 0.0), 8)
+	for job_tris: DotNpcAiNavAnnotator in [plain, sliver]:
+		# Every triangle of a small level; an even spread of a few hundred of a large one.
+		var stride := maxi(1, job_tris._tris.size() / 400)
+		for t in range(0, job_tris._tris.size(), stride):
+			var tri: Array = job_tris._tris[t]
+			var centre: Vector3 = ((tri[0] as Vector3) + (tri[1] as Vector3) + (tri[2] as Vector3)) / 3.0
+			for corner: Vector3 in [tri[0], tri[1], tri[2], centre, (tri[0] as Vector3).lerp(tri[1], 0.5)]:
+				for off in offsets:
+					var at := corner + off
+					job_tris.reference = true
+					job_tris._last_height = NAN
+					var want := job_tris._poly_under(at, 0.5)
+					var want_h := job_tris._last_height
+					job_tris.reference = false
+					job_tris._last_height = NAN
+					var got := job_tris._poly_under(at, 0.5)
+					asked += 1
+					var same := got == want and (got == -1 or job_tris._last_height == want_h)
+					if not same and differ.is_empty():
+						differ = "%s: %d at %f plain, %d at %f cached" % [at, want, want_h, got, job_tris._last_height]
+	_check(differ.is_empty() and asked > 500, "the cached triangle test finds the same polygon at the same height", "%d asked, %s" % [asked, differ])
+	_check(sliver._poly_under(Vector3(5.0, 1.0, 0.01), 1.0) == 7 and sliver._poly_under(Vector3(0.5, 1.0, 0.5), 1.0) == 8 and sliver._poly_under(Vector3(1.5, 0.0, 1.5), 1.0) == -1,
+		"and a sliver and a plain triangle answer as they should")
 	level.queue_free()
 	_done()

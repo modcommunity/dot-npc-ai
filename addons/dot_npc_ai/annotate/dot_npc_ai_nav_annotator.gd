@@ -164,6 +164,7 @@ func _step_polygons() -> void:
 func _add_triangle(a: Vector3, b: Vector3, c: Vector3, polygon: int) -> void:
 	var index := _tris.size()
 	_tris.append([a, b, c, polygon])
+	_cache_triangle(a, b, c, polygon)
 	_total_area += (b - a).cross(c - a).length() * 0.5
 	_tri_area.append(_total_area)
 	var lo := Vector2(minf(a.x, minf(b.x, c.x)), minf(a.z, minf(b.z, c.z)))

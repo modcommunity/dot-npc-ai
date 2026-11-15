@@ -75,7 +75,8 @@ var slice: int = 24
 ## Milliseconds one [method _step] may run before yielding, whatever [member slice] says: dense maps cost ten times sparse ones, so a count is no budget. Zero turns it off.
 ## Finishes its item (may overrun by one) and changes only where a step ends, so it is not in the cache key.
 var slice_ms: float = 4.0
-## Runs the plain way: every link scanned for a near twin rather than its cell's neighbours, and a new ray query per ray.
+## Runs the plain way: every link scanned for a near twin rather than its cell's neighbours, a new ray query per ray, and
+## every triangle in a mesh cell given the full test rather than the cached numbers and box.
 ## The same result by construction (so not in the cache key), slower on a big map; the selftest holds the fast path to it.
 var reference: bool = false
 
@@ -113,6 +114,27 @@ var _total_area: float = 0.0
 ## Vector2i XZ cell -> triangle indices.
 var _tri_grid: Dictionary = {}
 const GRID := 2.0
+## Per triangle, for the fast [method _poly_under]: the XZ edges from a as [method _height_in]
+## rounds them (c - a, b - a), and TRI_STRIDE numbers (see TRI_* offsets) from the same sums.
+var _tri_edges: PackedVector2Array = PackedVector2Array()
+var _tri_num: PackedFloat64Array = PackedFloat64Array()
+var _tri_poly: PackedInt32Array = PackedInt32Array()
+const TRI_STRIDE := 13
+## The XZ box, widened so that no point outside it can pass the barycentric test; NAN when the
+## triangle is too thin to trust the box (every point then takes the full test).
+const TRI_LO_X := 0
+const TRI_HI_X := 1
+const TRI_LO_Z := 2
+const TRI_HI_Z := 3
+const TRI_AX := 4
+const TRI_AY := 5
+const TRI_AZ := 6
+const TRI_D00 := 7
+const TRI_D01 := 8
+const TRI_D11 := 9
+const TRI_DENOM := 10
+const TRI_RISE_C := 11
+const TRI_RISE_B := 12
 ## Edge key -> [polygon, from vertex, to vertex], or the portal once two polygons share it.
 var _edges: Dictionary = {}
 var _edge_keys: Array = []
@@ -321,6 +343,8 @@ func _clear(from: Vector3, to: Vector3) -> bool:
 ## in height, or -1; its height there is left in [member _last_height].
 func _poly_under(at: Vector3, reach_y: float) -> int:
 	var bucket: PackedInt32Array = _tri_grid.get(Vector2i(floori(at.x / GRID), floori(at.z / GRID)), PackedInt32Array())
+	if not reference and _tri_poly.size() == _tris.size():
+		return _poly_under_cached(at, reach_y, bucket)
 	var best := -1
 	var best_dy := INF
 	for index in bucket:
@@ -334,6 +358,67 @@ func _poly_under(at: Vector3, reach_y: float) -> int:
 			best = int(tri[3])
 			_last_height = h
 	return best
+
+
+## [method _poly_under] from the per-triangle numbers: the same sums in the same precision as
+## [method _height_in], so the same answer, with most triangles turned away by their box.
+func _poly_under_cached(at: Vector3, reach_y: float, bucket: PackedInt32Array) -> int:
+	var best := -1
+	var best_dy := INF
+	for index in bucket:
+		var o := index * TRI_STRIDE
+		var denom := _tri_num[o + TRI_DENOM]
+		# A box test is false for NAN bounds, so a thin triangle always gets the full test.
+		if at.x < _tri_num[o + TRI_LO_X] or at.x > _tri_num[o + TRI_HI_X] or at.z < _tri_num[o + TRI_LO_Z] or at.z > _tri_num[o + TRI_HI_Z] or denom == 0.0:
+			continue
+		var v0 := _tri_edges[index * 2]
+		var v1 := _tri_edges[index * 2 + 1]
+		var ax := _tri_num[o + TRI_AX]
+		var az := _tri_num[o + TRI_AZ]
+		var v2 := Vector2(at.x - ax, at.z - az)
+		var d00 := _tri_num[o + TRI_D00]
+		var d01 := _tri_num[o + TRI_D01]
+		var d11 := _tri_num[o + TRI_D11]
+		var d20 := v2.dot(v0)
+		var d21 := v2.dot(v1)
+		var u := (d11 * d20 - d01 * d21) / denom
+		var v := (d00 * d21 - d01 * d20) / denom
+		if u < -0.001 or v < -0.001 or u + v > 1.001:
+			continue
+		var h := _tri_num[o + TRI_AY] + u * _tri_num[o + TRI_RISE_C] + v * _tri_num[o + TRI_RISE_B]
+		if is_nan(h):
+			continue
+		var dy := absf(at.y - h)
+		if dy <= reach_y and dy < best_dy:
+			best_dy = dy
+			best = _tri_poly[index]
+			_last_height = h
+	return best
+
+
+## Caches [param a], [param b], [param c]'s numbers for [method _poly_under_cached].
+func _cache_triangle(a: Vector3, b: Vector3, c: Vector3, polygon: int) -> void:
+	var v0 := Vector2(c.x - a.x, c.z - a.z)
+	var v1 := Vector2(b.x - a.x, b.z - a.z)
+	var d00 := v0.dot(v0)
+	var d01 := v0.dot(v1)
+	var d11 := v1.dot(v1)
+	var denom := d00 * d11 - d01 * d01
+	var lo_x := minf(a.x, minf(b.x, c.x))
+	var hi_x := maxf(a.x, maxf(b.x, c.x))
+	var lo_z := minf(a.z, minf(b.z, c.z))
+	var hi_z := maxf(a.z, maxf(b.z, c.z))
+	# The 0.001 barycentric slack grows the triangle by under 0.3 % of its extent; float32 sums
+	# err far less than the 5 % + 5 cm margin while the corner angle is not tiny (sin^2 >= 1e-3).
+	# Thinner triangles get no box.
+	var margin := 0.05 * maxf(hi_x - lo_x, hi_z - lo_z) + 0.05
+	if not (denom >= 1e-3 * d00 * d11):
+		margin = NAN
+	_tri_edges.append(v0)
+	_tri_edges.append(v1)
+	_tri_num.append_array(PackedFloat64Array([lo_x - margin, hi_x + margin, lo_z - margin, hi_z + margin,
+		a.x, a.y, a.z, d00, d01, d11, 0.0 if absf(denom) < 1e-9 else denom, c.y - a.y, b.y - a.y]))
+	_tri_poly.append(polygon)
 
 
 ## A point on the mesh, weighted by area, from the job's own stream: on a kept island once
