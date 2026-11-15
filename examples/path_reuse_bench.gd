@@ -1,9 +1,8 @@
 extends Node
 
-## What reusing a path's waypoint across thinks (DotNpcAiBrain.path_reuse_thoughts) saves a chasing crowd.
-## `godot --headless --path . res://examples/path_reuse_bench.tscn -- [--npcs=56] [--ticks=1200] [--reuse=5] [--rounds=3]`
-## 56 brains chase a target circling a walled 180 m square, each thinking every tick; times spawner.tick() with the
-## reuse off then on (alternating, so a shared box hits both alike) and prints one RESULT line. Compare the ratio, not the ms.
+## What reusing a path's waypoint across thinks (DotNpcAiBrain.path_reuse_thoughts) saves a chasing crowd: `godot --headless --path . res://examples/path_reuse_bench.tscn -- [--npcs=56] [--ticks=1200] [--reuse=5] [--rounds=3]`.
+## 56 brains chase a target circling a walled 180 m square, each thinking every tick; times spawner.tick() with the reuse off then on
+## (alternating, so a shared box hits both alike) and prints one RESULT line. Compare the ratio, not the ms.
 
 const BODY := "res://fixtures/npc_plain_body.tscn"
 const BRAIN := "res://fixtures/zombie_brain.gd"
