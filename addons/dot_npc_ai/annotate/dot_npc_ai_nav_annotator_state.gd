@@ -75,6 +75,9 @@ var slice: int = 24
 ## Milliseconds one [method _step] may run before yielding, whatever [member slice] says: dense maps cost ten times sparse ones, so a count is no budget. Zero turns it off.
 ## Finishes its item (may overrun by one) and changes only where a step ends, so it is not in the cache key.
 var slice_ms: float = 4.0
+## Runs the plain way: every link scanned for a near twin rather than its cell's neighbours, and a new ray query per ray.
+## The same result by construction (so not in the cache key), slower on a big map; the selftest holds the fast path to it.
+var reference: bool = false
 
 ## `(from: Vector3, to: Vector3) -> bool`, true when nothing blocks the sight line. Unset,
 ## a ray against [member collision_mask].
@@ -152,6 +155,16 @@ var _keep_usable: Array = []
 var _keep_total: float = 0.0
 var _thin_kept: Array = []
 var _thin_cells: Dictionary = {}
+# Rays cast, for the stats; one query reused for them.
+var _rays: int = 0
+var _query: PhysicsRayQueryParameters3D = null
+# annotations.links by the cell of their "from" (cells a little wider than link_spacing, so a
+# twin is always in the 27 around), indexed up to _link_cells_done; rebuilt when the array is
+# replaced or shrinks.
+var _link_cells: Dictionary = {}
+var _link_cells_of: Array[Dictionary] = []
+var _link_cells_done: int = 0
+var _link_cell: float = 0.0
 
 
 ## The settings that change the result, as one dictionary (what [method cache_key] digests).
@@ -247,8 +260,55 @@ func _out_of_time() -> bool:
 
 
 func _ray(from: Vector3, to: Vector3) -> Dictionary:
-	var query := PhysicsRayQueryParameters3D.create(from, to, collision_mask, exclude)
-	return _world.direct_space_state.intersect_ray(query)
+	_rays += 1
+	if reference:
+		return _world.direct_space_state.intersect_ray(PhysicsRayQueryParameters3D.create(from, to, collision_mask, exclude))
+	# One query per job, made at the first ray: the mask and the exclusions are the job's settings.
+	if _query == null:
+		_query = PhysicsRayQueryParameters3D.create(from, to, collision_mask, exclude)
+	else:
+		_query.from = from
+		_query.to = to
+	return _world.direct_space_state.intersect_ray(_query)
+
+
+## Whether a link of [param kind] already starts within [member link_spacing] of [param from]
+## and ends within it of [param to].
+func _has_link_near(from: Vector3, to: Vector3, kind: int) -> bool:
+	var links := annotations.links
+	# A spacing too fine for whole-number cells (zero, negative, NaN) is scanned: it matches nothing anyway.
+	if reference or not (link_spacing >= 0.001):
+		for link in links:
+			if int(link["kind"]) == kind and (link["from"] as Vector3).distance_to(from) < link_spacing and (link["to"] as Vector3).distance_to(to) < link_spacing:
+				return true
+		return false
+	var cell := link_spacing * 1.01
+	if not is_same(links, _link_cells_of) or links.size() < _link_cells_done or _link_cell != cell:
+		_link_cells = {}
+		_link_cells_of = links
+		_link_cells_done = 0
+		_link_cell = cell
+	for i in range(_link_cells_done, links.size()):
+		var c := _link_cell_at(links[i]["from"])
+		var bucket: PackedInt32Array = _link_cells.get(c, PackedInt32Array())
+		bucket.append(i)
+		# A packed array in a dictionary is a copy when read out; write it back.
+		_link_cells[c] = bucket
+	_link_cells_done = links.size()
+	var at := _link_cell_at(from)
+	for dx in range(-1, 2):
+		for dy in range(-1, 2):
+			for dz in range(-1, 2):
+				var bucket: PackedInt32Array = _link_cells.get(at + Vector3i(dx, dy, dz), PackedInt32Array())
+				for i in bucket:
+					var link := links[i]
+					if int(link["kind"]) == kind and (link["from"] as Vector3).distance_to(from) < link_spacing and (link["to"] as Vector3).distance_to(to) < link_spacing:
+						return true
+	return false
+
+
+func _link_cell_at(p: Vector3) -> Vector3i:
+	return Vector3i(floori(p.x / _link_cell), floori(p.y / _link_cell), floori(p.z / _link_cell))
 
 
 func _clear(from: Vector3, to: Vector3) -> bool:

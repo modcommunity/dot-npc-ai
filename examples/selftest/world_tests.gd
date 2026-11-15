@@ -620,5 +620,30 @@ func _test_nav_annotator_budget() -> void:
 	y.erase("stats")
 	_check(JSON.stringify(x) == JSON.stringify(y), "and the same links, spots and chokepoints as an unbudgeted run")
 	_check(a.key == whole.key, "under the same key")
+
+	# The link index and the reused ray query change nothing: the plain way gives the same bytes.
+	var plain := _annotator(mesh, level)
+	plain.seeds = PackedVector3Array([spawn])
+	plain.reference = true
+	var slow: DotNpcAiNavAnnotations = plain.run_to_completion().value
+	var z := slow.to_dict()
+	z.erase("stats")
+	_check(JSON.stringify(x).md5_text() == JSON.stringify(z).md5_text(), "and the same as the plain reference run (every link scanned, a query per ray)",
+		"%d links fast, %d plain" % [a.links.size(), slow.links.size()])
+	_check(a.key == slow.key and int(a.stats.get("rays", 0)) > 0 and a.stats.get("rays") == slow.stats.get("rays"),
+		"under the same key, with the same rays counted", "%s fast, %s plain" % [a.stats.get("rays"), slow.stats.get("rays")])
+
+	# A twin across a cell edge is found, a far one is not, whatever the index's state.
+	var twin := _annotator(mesh, level)
+	twin.link_spacing = 1.0
+	twin.annotations.links.append({"from": Vector3(1.009, 0.0, 0.0), "to": Vector3(5.0, 0.0, 0.0), "kind": 0, "cost": 1.0})
+	_check(twin._has_link_near(Vector3(1.012, 0.0, 0.0), Vector3(5.0, 0.0, 0.5), 0), "the link index finds a twin in the next cell")
+	_check(not twin._has_link_near(Vector3(2.1, 0.0, 0.0), Vector3(5.0, 0.0, 0.0), 0) and not twin._has_link_near(Vector3(1.0, 0.0, 0.0), Vector3(5.0, 0.0, 0.0), 1),
+		"and no link a spacing away or of another kind")
+	twin.annotations.links.append({"from": Vector3(2.5, 0.0, 0.0), "to": Vector3(5.0, 0.0, 0.0), "kind": 0, "cost": 1.0})
+	_check(twin._has_link_near(Vector3(2.6, 0.0, 0.0), Vector3(5.0, 0.0, 0.0), 0), "and one added since it was last asked")
+	var none: Array[Dictionary] = []
+	twin.annotations.links = none
+	_check(not twin._has_link_near(Vector3(1.012, 0.0, 0.0), Vector3(5.0, 0.0, 0.5), 0), "and forgets links once the list is replaced")
 	level.queue_free()
 	_done()

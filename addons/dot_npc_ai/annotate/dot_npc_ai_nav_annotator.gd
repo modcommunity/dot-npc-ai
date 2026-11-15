@@ -30,6 +30,10 @@ func _setup() -> void:
 	_phase_started_us = _started_us
 	_rng = DotRandomStream.new(random_seed, &"nav_annotate")
 	annotations = DotNpcAiNavAnnotations.new()
+	_rays = 0
+	_query = null
+	_link_cells = {}
+	_link_cells_done = 0
 
 
 func _progress() -> float:
@@ -117,6 +121,7 @@ func _complete() -> void:
 		"slowest_slice_ms": snappedf(_slowest_ms, 0.1), "slowest_slice_phase": _slowest_phase, "polygons": _mesh.get_polygon_count(),
 		"outline": _border.size(), "samples": _samples.size(), "wall_samples": _wall_samples.size(),
 		"islands": _island_count(), "islands_kept": _kept.size(), "links_joining_islands": joining, "routes": _routes_done,
+		"rays": _rays,
 	}
 	DotLog.info(CHANNEL, "annotated a map", {
 		"links": annotations.link_counts(), "spots": annotations.spots.size(), "hiding": annotations.hiding.size(),
@@ -304,9 +309,8 @@ func _try_gap(p: Vector3, n: Vector3) -> void:
 ## Adds a link unless one like it is near both its ends or [method _keep_link] says a walk
 ## already covers it.
 func _offer_link(from: Vector3, to: Vector3, kind: int, cost: float) -> void:
-	for link in annotations.links:
-		if int(link["kind"]) == kind and (link["from"] as Vector3).distance_to(from) < link_spacing and (link["to"] as Vector3).distance_to(to) < link_spacing:
-			return
+	if _has_link_near(from, to, kind):
+		return
 	if not _keep_link(from, to, kind):
 		return
 	annotations.links.append({"from": from, "to": to, "kind": kind, "cost": cost})

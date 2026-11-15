@@ -214,6 +214,7 @@ func _open_to_sky(root: int) -> bool:
 			# inside a box, a wall's own top under another, which nobody stands on.
 			var query := PhysicsRayQueryParameters3D.create(c, c + Vector3.UP * 2000.0, collision_mask, exclude)
 			query.hit_from_inside = true
+			_rays += 1
 			var hit := _world.direct_space_state.intersect_ray(query)
 			if hit.is_empty():
 				open += 1
