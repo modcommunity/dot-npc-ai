@@ -1,10 +1,10 @@
-How NPCs make decisions in a Godot 4 game. It is the decision half of [dot-npc](https://github.com/modcommunity/dot-npc): you describe what an NPC does with a behaviour tree, a state machine, or a score-based (utility) chooser, and dot-npc-ai runs it. It also gives each NPC a character (so two NPCs on one tree behave differently), squad tactics, hearing, cover, shooting, and steering for crowds. Part of TMC's open source **Dot** collection (MIT licence).
+How NPCs make decisions in a Godot 4 game. It is the decision half of [dot-npc](https://github.com/gamespice-platform/npc): you describe what an NPC does with a behaviour tree, a state machine, or a score-based (utility) chooser, and dot-npc-ai runs it. It also gives each NPC a character (so two NPCs on one tree behave differently), squad tactics, hearing, cover, shooting, and steering for crowds. Part of TMC's open source **Dot** collection (MIT licence).
 
 > Built with Claude Code. Every addon has a headless test suite and the suites pass, but little of this has met real players yet. Please report rough edges.
 
 ## Install
 
-Copy `addons/dot_npc_ai/`, `addons/dot_npc/` and [dot-core](https://github.com/modcommunity/dot-core)'s `addons/dot_core/` into your project and enable them under **Project > Project Settings > Plugins**. Only the brain class touches dot-npc.
+Copy `addons/dot_npc_ai/`, `addons/dot_npc/` and [dot-core](https://github.com/gamespice-platform/core)'s `addons/dot_core/` into your project and enable them under **Project > Project Settings > Plugins**. Only the brain class touches dot-npc.
 
 ## What is in it
 
