@@ -633,6 +633,13 @@ func _test_nav_annotator_budget() -> void:
 	_check(a.key == slow.key and int(a.stats.get("rays", 0)) > 0 and a.stats.get("rays") == slow.stats.get("rays"),
 		"under the same key, with the same rays counted", "%s fast, %s plain" % [a.stats.get("rays"), slow.stats.get("rays")])
 
+	_check_link_index(mesh, level)
+	_check_cached_triangles(mesh, level, plain)
+	level.queue_free()
+	_done()
+
+
+func _check_link_index(mesh: NavigationMesh, level: Node3D) -> void:
 	# A twin across a cell edge is found, a far one is not, whatever the index's state.
 	var twin := _annotator(mesh, level)
 	twin.link_spacing = 1.0
@@ -646,6 +653,8 @@ func _test_nav_annotator_budget() -> void:
 	twin.annotations.links = none
 	_check(not twin._has_link_near(Vector3(1.012, 0.0, 0.0), Vector3(5.0, 0.0, 0.5), 0), "and forgets links once the list is replaced")
 
+
+func _check_cached_triangles(mesh: NavigationMesh, level: Node3D, plain: DotNpcAiNavAnnotator) -> void:
 	# The cached triangle test answers as the plain one, at the corners and just past the edges
 	# of the level's triangles, and of a sliver whose box is not trusted.
 	var asked := 0
@@ -678,5 +687,3 @@ func _test_nav_annotator_budget() -> void:
 	_check(differ.is_empty() and asked > 500, "the cached triangle test finds the same polygon at the same height", "%d asked, %s" % [asked, differ])
 	_check(sliver._poly_under(Vector3(5.0, 1.0, 0.01), 1.0) == 7 and sliver._poly_under(Vector3(0.5, 1.0, 0.5), 1.0) == 8 and sliver._poly_under(Vector3(1.5, 0.0, 1.5), 1.0) == -1,
 		"and a sliver and a plain triangle answer as they should")
-	level.queue_free()
-	_done()
