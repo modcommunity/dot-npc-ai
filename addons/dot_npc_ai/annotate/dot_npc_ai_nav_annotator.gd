@@ -448,6 +448,129 @@ func _hide_score(spot: Dictionary) -> float:
 
 
 func _step_pick() -> void:
+	if reference:
+		_pick_whole()
+		return
+	match _pick_stage:
+		0:
+			# Scores, a slice at a time (an override of _hide_score may be dear).
+			var count := annotations.spots.size()
+			var end := count
+			for i in range(_cursor, count):
+				_pick_scores.append(_hide_score(annotations.spots[i]))
+				if _out_of_time():
+					end = i + 1
+					break
+			_cursor = end
+			if _cursor >= count:
+				_pick_stage = 1
+				_cursor = 0
+		1:
+			# Sorted runs; the order is total (score, then index), so any correct sort of the
+			# pieces merges to the one whole sort.
+			var count := _pick_scores.size()
+			var run_len := maxi(8, slice * 8)
+			while _cursor < count:
+				var end := mini(_cursor + run_len, count)
+				var run: Array = []
+				for i in range(_cursor, end):
+					run.append(i)
+				run.sort_custom(_pick_before)
+				_pick_runs.append(run)
+				_cursor = end
+				if _out_of_time():
+					break
+			if _cursor >= count:
+				_pick_stage = 2
+				_cursor = 0
+		2:
+			_pick_merge()
+		_:
+			_pick_select()
+
+
+func _pick_before(a: int, b: int) -> bool:
+	var sa: float = _pick_scores[a]
+	var sb: float = _pick_scores[b]
+	return sa > sb or (sa == sb and a < b)
+
+
+## Merges the sorted runs two at a time, pass after pass, until one is left; resumes where a
+## step left off.
+func _pick_merge() -> void:
+	while true:
+		if not _pick_merging:
+			if _pick_runs.size() >= 2:
+				_pick_left = _pick_runs.pop_front()
+				_pick_right = _pick_runs.pop_front()
+				_pick_out = []
+				_pick_i = 0
+				_pick_j = 0
+				_pick_merging = true
+			elif _pick_runs.size() == 1:
+				_pick_next.append(_pick_runs.pop_back())
+				continue
+			elif _pick_next.size() <= 1:
+				_pick_order = _pick_next[0] if _pick_next.size() == 1 else []
+				_pick_stage = 3
+				_cursor = 0
+				return
+			else:
+				_pick_runs = _pick_next
+				_pick_next = []
+				continue
+		var l := _pick_left.size()
+		var r := _pick_right.size()
+		while _pick_i < l and _pick_j < r:
+			var x: int = _pick_left[_pick_i]
+			var y: int = _pick_right[_pick_j]
+			if _pick_before(y, x):
+				_pick_out.append(y)
+				_pick_j += 1
+			else:
+				_pick_out.append(x)
+				_pick_i += 1
+			if (_pick_i + _pick_j) % 64 == 0 and _out_of_time():
+				return
+		_pick_out.append_array(_pick_left.slice(_pick_i))
+		_pick_out.append_array(_pick_right.slice(_pick_j))
+		_pick_next.append(_pick_out)
+		_pick_left = []
+		_pick_right = []
+		_pick_out = []
+		_pick_merging = false
+		if _out_of_time():
+			return
+
+
+## The choosing walk down the order, resumable at [member _cursor].
+func _pick_select() -> void:
+	var cutoff := maxi(1, _pick_order.size() / 3)
+	while _cursor < _pick_order.size():
+		var rank := _cursor
+		_cursor += 1
+		if annotations.hiding.size() >= max_hiding:
+			_cursor = _pick_order.size()
+			break
+		var index: int = _pick_order[rank]
+		var spot := annotations.spots[index]
+		if not (rank >= cutoff and float(spot["exposure"]) > 0.33):
+			var at: Vector3 = spot["at"]
+			var crowded := false
+			for other in _pick_chosen:
+				if other.distance_to(at) < spot_spacing:
+					crowded = true
+					break
+			if not crowded:
+				_pick_chosen.append(at)
+				annotations.hiding.append(index)
+		if _out_of_time():
+			return
+	_next_phase()
+
+
+## The pick phase in one step: the plain way, which [member reference] holds the sliced one to.
+func _pick_whole() -> void:
 	var order: Array = []
 	for i in range(annotations.spots.size()):
 		order.append([_hide_score(annotations.spots[i]), i])
