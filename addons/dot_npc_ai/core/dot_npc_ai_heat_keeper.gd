@@ -2,7 +2,7 @@ class_name DotNpcAiHeatKeeper
 extends RefCounted
 
 ## Keeps a [DotNpcAiHeatmap] per map: samples players, swaps it on a map change (saving the old one first, or map B trains on map A's corridors) and saves it so a server keeps learning.
-## [codeblock]var heat := DotNpcAiHeatKeeper.new("user://npc_heat", "arena")
+## [codeblock]var heat := DotNpcAiHeatKeeper.new("user://npc_heat", "fc")
 ## heat.tick(delta, map_id, player_positions, spawner.now(), spawner)  # every tick; heat.save(spawner.now()) on the way out[/codeblock]
 
 const CHANNEL := "npc.ai.heat"

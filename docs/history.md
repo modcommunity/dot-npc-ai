@@ -22,7 +22,7 @@ Nothing errored: **a bot that never acts on what it sees looks like a bot that i
 - **`alertness` and `memory_time` were read by nothing**: declared, documented and carried by every preset. Two game brains authored `memory_time` per kind.
 - **A game brain's `put(&"last_seen", pos, 8.0)`** passed 8.0 as *now* and no lifetime, so its memory never expired (game-playlot's hunter).
 - **The search branch was written three times** with three hard-coded lifetimes before it became the brain's.
-- **arena's first `npc_shoot` resolved, counted and hit nobody**: a shot made by hand has no pellets.
+- **FC's first `npc_shoot` resolved, counted and hit nobody**: a shot made by hand has no pellets.
 
 ## In the suite
 

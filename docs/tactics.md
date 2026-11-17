@@ -43,7 +43,7 @@ The game resolves the shot. Two things about doing that through dot-combat: a sh
 
 **`DotNpcAiHeatKeeper` keeps one per map:** sample on an interval, save on an interval and on the way out, swap on a map change. Every game would write those lines and the one that forgets to save before swapping trains map B on map A's corridors.
 
-- **Re-adopting the map it already holds reloads without saving first.** A game turns persistence on after the map was adopted with it off (arena's horde is built before its server module loads); saving there would overwrite the file with the few seconds learned since, and a server would forget every map on every restart.
+- **Re-adopting the map it already holds reloads without saving first.** A game turns persistence on after the map was adopted with it off (FC's horde is built before its server module loads); saving there would overwrite the file with the few seconds learned since, and a server would forget every map on every restart.
 - **Persistence is the server's decision, never the default.** Every suite builds the game, and one that saved would have each run's bots train the next run's NPCs: a suite whose results depend on how many times it has run. game-fatal-contact's and game-playlot's server modules turn it on; their suites leave nothing in `user://`.
 
 ## Attack tokens
