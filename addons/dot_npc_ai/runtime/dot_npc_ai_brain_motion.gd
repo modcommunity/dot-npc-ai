@@ -271,21 +271,7 @@ func steer_with_spacing(
 		return
 
 	var here := npc.position()
-	var wanted := DotNpcAiSteering.seek(here, goal)
-
-		# The NPC's own right as the tie-break for a stack: it differs per NPC, so two stacked NPCs are shoved
-		# apart in different directions, not travel as a tower. From `facing()` turned a quarter turn about Y,
-		# not a basis: `global_transform` does not exist on a [Node2D], and a 2D game errored once per NPC per tick.
-	var forward := npc.facing()
-	var right := Vector3(-forward.z, 0.0, forward.x)
-	var apart := separation(here, spacing, right)
-
-		# Separation is weighted below seeking: equal weights make a crowd that spreads out and stops arriving,
-		# since at a doorway the pushes cancel the seek and the horde mills about outside, which reads as a
-		# broken pathfinder.
-	var direction := wanted * 1.0 + apart * 0.6
-	direction.y = 0.0
-	direction = direction.normalized() if direction.length() > 0.001 else Vector3.ZERO
+	var direction := _spaced_direction(here, goal, spacing)
 
 	if direction.length() < 0.001:
 		return
@@ -301,6 +287,27 @@ func steer_with_spacing(
 	_cruise_to = goal
 	_cruise_dest = to
 	_watch_progress(here, to)
+
+
+## [method steer_with_spacing]'s heading before avoidance: the seek from [param here] to [param goal] and
+## [method separation]'s push off the crowd within [param spacing], blended, flat and unit (zero when they cancel).
+## A host with a native crowd overrides it to answer in one call (Zombie Zone's `DotSimCrowdGrid.spaced_direction`).
+func _spaced_direction(here: Vector3, goal: Vector3, spacing: float) -> Vector3:
+	var wanted := DotNpcAiSteering.seek(here, goal)
+
+		# The NPC's own right as the tie-break for a stack: it differs per NPC, so two stacked NPCs are shoved
+		# apart in different directions, not travel as a tower. From `facing()` turned a quarter turn about Y,
+		# not a basis: `global_transform` does not exist on a [Node2D], and a 2D game errored once per NPC per tick.
+	var forward := npc.facing()
+	var right := Vector3(-forward.z, 0.0, forward.x)
+	var apart := separation(here, spacing, right)
+
+		# Separation is weighted below seeking: equal weights make a crowd that spreads out and stops arriving,
+		# since at a doorway the pushes cancel the seek and the horde mills about outside, which reads as a
+		# broken pathfinder.
+	var direction := wanted * 1.0 + apart * 0.6
+	direction.y = 0.0
+	return direction.normalized() if direction.length() > 0.001 else Vector3.ZERO
 
 
 ## The enabled avoidance node on the registry, or null; looked for about once a second.
