@@ -205,7 +205,7 @@ func _world_now() -> float:
 
 
 ## Turns toward [param direction] no faster than this character can.
-## Every turn the brain makes goes through here, steering included (dot-npc's `steer_toward` faces the way it moves), so the sight cone swings at [member DotNpcAiCharacter.view_turn_deg]; otherwise NPCs snap round in one tick and a player cannot get behind one.
+## Every turn the brain makes goes through here, steering included (GameSpice NPC's `steer_toward` faces the way it moves), so the sight cone swings at [member DotNpcAiCharacter.view_turn_deg]; otherwise NPCs snap round in one tick and a player cannot get behind one.
 ## Limited from where the NPC faced at the START of the think, so a steer and then a look do not turn it twice as far.
 func face(direction: Vector3) -> void:
 	if character == null or context == null or context.delta <= 0.0 or npc == null:
@@ -222,7 +222,7 @@ func face(direction: Vector3) -> void:
 
 
 ## The nearby positions a separation pass needs, asked of the director.
-## Duck-typed so this file names one dot-npc class and no more: a host that publishes `npcs_near` gets crowd avoidance, one that does not gets an empty array (the same as nobody nearby).
+## Duck-typed so this file names one GameSpice NPC class and no more: a host that publishes `npcs_near` gets crowd avoidance, one that does not gets an empty array (the same as nobody nearby).
 func neighbours(radius: float) -> Array:
 	var out: Array = []
 
@@ -324,7 +324,7 @@ func _avoider() -> DotNpcAiAvoidance:
 
 ## Notices an NPC that is steering and not getting anywhere, and gives it the graph's own corners for a few seconds.
 ## A smoothed path on a coarse graph cuts a door jamb's corner thinner than its spacing and the NPC presses into the jamb for as long as the path lasts, so hordes stood at tunnel doors for minutes.
-## Duck-typed, so an older dot-npc without it is left alone.
+## Duck-typed, so an older GameSpice NPC without it is left alone.
 func _watch_progress(here: Vector3, goal: Vector3) -> void:
 	var now := _world_now()
 

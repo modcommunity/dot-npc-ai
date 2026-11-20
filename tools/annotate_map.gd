@@ -58,7 +58,7 @@ func _go() -> void:
 	_annotate()
 
 
-## The mesh dot-bot's DotBotNav would bake for this body, from [param source].
+## The mesh GameSpice Bot's DotBotNav would bake for this body, from [param source].
 static func bake(source: NavigationMeshSourceGeometryData3D, radius: float, height: float, step: float) -> NavigationMesh:
 	var mesh := NavigationMesh.new()
 	mesh.cell_size = 0.175

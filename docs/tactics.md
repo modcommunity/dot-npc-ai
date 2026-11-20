@@ -10,7 +10,7 @@ The bar was "at least as good as the tactical single-player shooters' NPCs", and
 | An enemy memory, several enemies, last known positions | `DotNpcAiMemory`, with how each fact was learned (sight, sound, squad, damage) | A smoothed velocity per enemy, and `search()` goes where a lost enemy was HEADING, by `tactics`. Turning two corners does not escape a smart NPC |
 | A world sound list: combat, danger, player | `DotNpcAiSounds`, emitted by the game, heard once per sound, scaled by alertness | A danger carries its reach separately from how far it is heard, so a grenade heard across a room is fled only by those inside its blast |
 | Squads with attack slots | `DotNpcAiSquad`: slots, shared sightings, a leader by lowest id | Waiters share the ring out (`spread_bearings`) in the order they stand, and a smart squad's arc centres on the enemy's back ("behind" being the side away from whoever is hitting it) |
-| Cover from hint nodes | `find_cover` over dot-npc's generated cover spots | Claimed per squad, one NPC per spot |
+| Cover from hint nodes | `find_cover` over GameSpice NPC's generated cover spots | Claimed per squad, one NPC per spot |
 | A maximum yaw speed | `DotNpcAiBrain.face` goes through the character's `turn_view` | Limited from the facing at the start of the think, so a steer and a look in one tick do not turn twice as far |
 
 `DotNpcAiCharacter.tactics` is the one trait added for this, and the server's skill moves it: whether an NPC calls out to its squad (below 0.2 it does not), how far ahead it predicts a lost enemy, and how hard it works round to a player's back. Easy NPCs are brave idiots; nightmare ones are why a player checks behind them.
@@ -29,7 +29,7 @@ The bar was "at least as good as the tactical single-player shooters' NPCs", and
 
 **The friendly-fire lane is a tactics question.** Below 0.2 an NPC does not check `fire_lane_clear` and shoots its own squad in the back, which is what a dull horde does.
 
-The game resolves the shot. Two things about doing that through dot-combat: a shot made by hand traces nothing (dot-combat traces `pellets`, which a weapon fills and `DotShot.scatter()` builds), and dot-combat relocates a shot to where the server believes the shooter is, so a test must fire from the NPC, not a made-up point. Ask "did it hit a player", the only question that catches the first.
+The game resolves the shot. Two things about doing that through GameSpice Combat: a shot made by hand traces nothing (GameSpice Combat traces `pellets`, which a weapon fills and `DotShot.scatter()` builds), and GameSpice Combat relocates a shot to where the server believes the shooter is, so a test must fire from the NPC, not a made-up point. Ask "did it hit a player", the only question that catches the first.
 
 ## Roles are attack slots with names
 

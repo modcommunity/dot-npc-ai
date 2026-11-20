@@ -337,7 +337,7 @@ func _ranged_patrol() -> void:
 
 
 ## The one cvar shape [method DotNpcAiNavAnnotator.read_cvars] reads (`name`, `get_string`),
-## as dot-server's console variable has it.
+## as GameSpice Server's console variable has it.
 class NavCvar:
 	extends RefCounted
 

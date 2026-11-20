@@ -2,7 +2,7 @@ class_name DotNpcAiContext
 extends RefCounted
 
 ## Everything one tick of a decision needs, in one object: every node takes it, and a sixth argument would otherwise change fifteen places.
-## [b]It names nothing from dot-npc:[/b] [member agent] is whatever the host drives and [member brain] whatever drives it, so the tree can be lifted into anything; only [DotNpcAiBrain] mentions dot-npc.
+## [b]It names nothing from GameSpice NPC:[/b] [member agent] is whatever the host drives and [member brain] whatever drives it, so the tree can be lifted into anything; only [DotNpcAiBrain] mentions GameSpice NPC.
 
 ## What is being decided for. A [code]DotNpcInstance[/code] in the ordinary case.
 var agent: Object = null

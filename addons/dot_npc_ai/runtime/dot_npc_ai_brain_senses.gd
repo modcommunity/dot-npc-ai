@@ -20,7 +20,7 @@ func _sense() -> void:
 	if has_target:
 		var at := target_position(Vector3.INF)
 
-		# Perceived on this pass, as against held through dot-npc's commitment grace. The
+		# Perceived on this pass, as against held through GameSpice NPC's commitment grace. The
 		# senses stamp `target_seen_at` with the director's clock on every pass that sees it.
 		var seen := absf(npc.target_seen_at - _world_now()) < 0.0001
 
@@ -153,7 +153,7 @@ func _listen(c: DotNpcAiConditions) -> void:
 		c.set_flag(DotNpcAiConditions.HEAR_DANGER)
 
 	# Turns toward what it heard when it has nothing better to look at, so its eyes — the
-	# sight cone dot-npc checks — can find what its ears did.
+	# sight cone GameSpice NPC checks — can find what its ears did.
 	if turn_to != Vector3.INF and not npc.has_target():
 		face(turn_to - here)
 

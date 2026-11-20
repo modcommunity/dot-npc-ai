@@ -2,7 +2,7 @@
 
 ## Why it is a separate addon
 
-A game that wants a catalogue, a population budget and a chaser does not need a behaviour tree, and making it install one is how an addon family gets a reputation for being heavy. dot-npc's own `DotNpcBrain` is enough for most NPCs in most games.
+A game that wants a catalogue, a population budget and a chaser does not need a behaviour tree, and making it install one is how an addon family gets a reputation for being heavy. GameSpice NPC's own `DotNpcBrain` is enough for most NPCs in most games.
 
 **Only one file names dot-npc.** Everything in `tree/`, `fsm/`, `steer/` and `core/` names dot-core and nothing else; only `runtime/dot_npc_ai_brain.gd` mentions dot-npc. The decision engine could be lifted into a vehicle, a 2D game or a menu, and the lines that join it to an NPC are the part that could not.
 
@@ -60,7 +60,7 @@ So every `DotNpcAiBlackboard` write may carry a lifetime and a read past it is a
 
 ## Steering, and the gap it fills
 
-dot-npc paths and follows; it says nothing about two NPCs that want to be in the same place, because separation is a behaviour rather than a fact about the world. dot-npc names that as a deliberate gap and this is where it is filled.
+GameSpice NPC paths and follows; it says nothing about two NPCs that want to be in the same place, because separation is a behaviour rather than a fact about the world. GameSpice NPC names that as a deliberate gap and this is where it is filled.
 
 Every method returns a **desired direction** and moves nothing. A steering library that moved things would have to know what a body is, and that is exactly the dependency this addon does not take.
 
@@ -88,10 +88,10 @@ So: separation keeps NPCs apart, and the physics keeps them out of the walls.
 
 - **No editor.** A behaviour tree built in a graph editor is a real convenience and a real pile of tooling; this family ships pure GDScript with no build step, and `describe_lines()` is what a tree is debugged with instead.
 - **No utility scoring of decisions.** A third decision model on top of two is a choice nobody needs before they have shipped an NPC. `DotNpcAiCharacter` is a table of weights and not a scorer: it says what an NPC is like, and the tree still decides. Positions are the exception: `DotNpcAiTactics.best_of` scores places to stand, because "where" is always a trade and a trade written as an if-chain stands in the open.
-- **No chat, no barks, no personality beyond the numbers.** That is a game's, and dot-chat's if it wants it.
-- **No weapon knowledge in the character.** `aim_point` takes a travel speed and knows nothing else. dot-combat is where a weapon lives, and naming it here would make this addon fail to parse without it.
+- **No chat, no barks, no personality beyond the numbers.** That is a game's, and GameSpice Chat's if it wants it.
+- **No weapon knowledge in the character.** `aim_point` takes a travel speed and knows nothing else. GameSpice Combat is where a weapon lives, and naming it here would make this addon fail to parse without it.
 - **No population or pacing.** That is `dot-npc-ai-director`.
 - **No formations or orders.** A squad here shares what it sees, hands out named roles, shares a ring and claims cover; the roles are claimed, never assigned, so there is no leader issuing a plan. Anything that is one ("you two hold the door") is a game's, and roles are the seam it hangs off.
 - **No animation.** `DotNpcNetSync.State` is what a client picks one with.
-- **No pathfinding.** dot-npc owns that, and dot-bot's `DotBotNav` owns the navigation mesh; this steers between the waypoints they give. What is here is what a map means to somebody walking it (links, hiding spots, cover, chokepoints, [navigation-annotations.md](navigation-annotations.md)), worked out from a mesh someone else baked and handed to whichever planner a game uses.
+- **No pathfinding.** GameSpice NPC owns that, and GameSpice Bot's `DotBotNav` owns the navigation mesh; this steers between the waypoints they give. What is here is what a map means to somebody walking it (links, hiding spots, cover, chokepoints, [navigation-annotations.md](navigation-annotations.md)), worked out from a mesh someone else baked and handed to whichever planner a game uses.
 - **No threading.** `DotNpcAiParallel` names the fact that every child gets a tick, not concurrency. An NPC has never needed a scheduler.

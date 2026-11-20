@@ -195,7 +195,7 @@ func _release_roles_on(target: StringName) -> void:
 
 
 ## The best cover from [param threat] within [param max_distance], or [constant Vector3.INF].
-## From the navigation data dot-npc's generator marked (a cover spot records which way its wall is, so no raycast), scored by cover against distance. Claimed in the squad, one NPC per spot: otherwise two pick the same and the second stands in the open.
+## From the navigation data GameSpice NPC's generator marked (a cover spot records which way its wall is, so no raycast), scored by cover against distance. Claimed in the squad, one NPC per spot: otherwise two pick the same and the second stands in the open.
 func find_cover(threat: Vector3, max_distance: float = 15.0) -> Vector3:
 	var data := _nav_data()
 

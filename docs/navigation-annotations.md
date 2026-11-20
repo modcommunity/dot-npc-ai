@@ -12,13 +12,13 @@ Everything here is measured from two things every map has once it is loaded: the
 
 | Part | Owner |
 | --- | --- |
-| Baking the mesh from the level's colliders | dot-bot's `DotBotNav` (on a worker thread where there are threads), or anything else that makes a `NavigationMesh` |
+| Baking the mesh from the level's colliders | GameSpice Bot's `DotBotNav` (on a worker thread where there are threads), or anything else that makes a `NavigationMesh` |
 | Annotating it | `DotNpcAiNavAnnotator` here, a `DotJob` |
 | Holding, saving and querying the result | `DotNpcAiNavAnnotations` here, data only |
 | Seeing it | `DotNpcAiNavDebug` here, and `tools/annotate_map.gd` |
-| Using it | the game: it hands the links to its planner (`DotBotNav.add_ride`, dot-npc's `add_link`) and the spots to its choose step (`DotBotHiding`, `DotNpcAiTactics`) |
+| Using it | the game: it hands the links to its planner (`DotBotNav.add_ride`, GameSpice NPC's `add_link`) and the spots to its choose step (`DotBotHiding`, `DotNpcAiTactics`) |
 
-The annotator takes engine types only (a `NavigationMesh` and a `World3D`) and names no navigation class of any addon. Points come out as `Vector3`s in the map's space, so dot-bot's mesh, dot-npc's graph and a game's own pathing read the same annotations, and dot-npc-ai stays liftable. Spots are dictionaries with dot-bot's hiding fields (`at`, `exposure`, `seen_by`), so `hiding_spots()` goes straight into `DotBotHiding.choose`.
+The annotator takes engine types only (a `NavigationMesh` and a `World3D`) and names no navigation class of any addon. Points come out as `Vector3`s in the map's space, so GameSpice Bot's mesh, GameSpice NPC's graph and a game's own pathing read the same annotations, and GameSpice NPC AI stays liftable. Spots are dictionaries with GameSpice Bot's hiding fields (`at`, `exposure`, `seen_by`), so `hiding_spots()` goes straight into `DotBotHiding.choose`.
 
 ## What it finds, and how
 
@@ -59,7 +59,7 @@ A physics query is main-thread only, and a browser without threads has nothing e
 
 ## Measured
 
-`tools/annotate_map.gd` bakes with dot-bot's numbers and steps the job as a scheduler would. Body radius 0.35 m, height 1.8, step 0.4, jump 1.25 (1.0 for the toy).
+`tools/annotate_map.gd` bakes with GameSpice Bot's numbers and steps the job as a scheduler would. Body radius 0.35 m, height 1.8, step 0.4, jump 1.25 (1.0 for the toy).
 
 | Map | Mesh | Links | Spots | Hiding | Chokepoints | Total | Slowest slice |
 | --- | --- | --- | --- | --- | --- | --- | --- |
@@ -98,7 +98,7 @@ What looking found, that every count had passed: floor-level gap links across ev
 ## Not yet
 
 - **Ladders** are declared, not found: a ladder is a volume a map marks, and an imported map's ladder brushes come through its entity list, which the game reads.
-- **Surf ramps** stay with dot-bot's surf planner, which already derives ride edges from the ramp geometry; a game declares them here so they count for reachability and the key.
+- **Surf ramps** stay with GameSpice Bot's surf planner, which already derives ride edges from the ramp geometry; a game declares them here so they count for reachability and the key.
 - **Sightlines** beyond a spot's exposure (the long lanes a sniper holds) want watchers paired with each other, the same rays turned around; the watchers are already drawn.
 - **Walkable surfaces the bake refuses** (a slope over 46 degrees) are not linked; that is the surf case again.
 

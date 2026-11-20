@@ -1,7 +1,7 @@
 extends "res://addons/dot_npc_ai/runtime/dot_npc_ai_brain.gd"
 
 ## A brain for the self-test: a machine of three states over a tree of two branches.
-## Extends a PATH, not [code]DotNpcAiBrain[/code], and the suite asserts it loads through dot-npc's spawner: that is the shape a brain in a mounted dot-cloud pack must have.
+## Extends a PATH, not [code]DotNpcAiBrain[/code], and the suite asserts it loads through GameSpice NPC's spawner: that is the shape a brain in a mounted GameSpice Cloud pack must have.
 
 var chases: int = 0
 var wanders: int = 0

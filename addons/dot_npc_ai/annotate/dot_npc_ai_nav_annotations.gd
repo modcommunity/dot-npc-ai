@@ -3,7 +3,7 @@ extends RefCounted
 
 ## What a map means to somebody walking it, from its navigation mesh and colliders: links (drops, jumps the mesh does not join), spots (out of sight or behind cover) and chokepoints.
 ## [b]Data only, cached by [member key].[/b] [DotNpcAiNavAnnotator] fills it; it names no navigation class, so any pathing reads the same points. The key digests mesh, settings and [constant VERSION], so one file per map serves every machine.
-## Spots are dictionaries compatible with dot-bot's hiding layer (`at`, `exposure`, `seen_by`).
+## Spots are dictionaries compatible with GameSpice Bot's hiding layer (`at`, `exposure`, `seen_by`).
 
 # No log channel: a container. The annotator logs what it found.
 

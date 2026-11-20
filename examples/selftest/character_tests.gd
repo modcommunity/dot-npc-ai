@@ -428,7 +428,7 @@ func _test_character_aim() -> void:
 
 
 func _character_aim_scatter(from: Vector3, target: Vector3) -> void:
-	# The half-moon check. dot-combat shipped a mixer that never returned above 0.5,
+	# The half-moon check. GameSpice Combat shipped a mixer that never returned above 0.5,
 	# so every shotgun pattern sat on one side of the aim — and a maximum-magnitude
 	# check passes for a half-moon. A quadrant check does not.
 	var sloppy := DotNpcAiCharacter.new()

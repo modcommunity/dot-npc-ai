@@ -1,12 +1,12 @@
 [![NPC AI - GameSpice addon](docs/banner.png)](https://moddingcommunity.com/a/56-gs-npc-ai)
 
-How NPCs make decisions in a Godot 4 game. It is the decision half of [dot-npc](https://github.com/gamespice-platform/npc): you describe what an NPC does with a behaviour tree, a state machine, or a score-based (utility) chooser, and dot-npc-ai runs it. It also gives each NPC a character (so two NPCs on one tree behave differently), squad tactics, hearing, cover, shooting, and steering for crowds. Part of TMC's open source [**GameSpice**](https://gamespice.net) collection (MIT licence).
+How NPCs make decisions in a Godot 4 game. It is the decision half of [GameSpice NPC](https://github.com/gamespice-platform/npc): you describe what an NPC does with a behaviour tree, a state machine, or a score-based (utility) chooser, and dot-npc-ai runs it. It also gives each NPC a character (so two NPCs on one tree behave differently), squad tactics, hearing, cover, shooting, and steering for crowds. Part of TMC's open source [**GameSpice**](https://gamespice.net) collection (MIT licence).
 
 > Built with Claude Code. Every addon has a headless test suite and the suites pass, but little of this has met real players yet. Please report rough edges.
 
 ## Install
 
-Copy `addons/dot_npc_ai/`, `addons/dot_npc/` and [dot-core](https://github.com/gamespice-platform/core)'s `addons/dot_core/` into your project and enable them under **Project > Project Settings > Plugins**. Only the brain class touches dot-npc.
+Copy `addons/dot_npc_ai/`, `addons/dot_npc/` and [GameSpice Core](https://github.com/gamespice-platform/core)'s `addons/dot_core/` into your project and enable them under **Project > Project Settings > Plugins**. Only the brain class touches dot-npc.
 
 ## What is in it
 
@@ -88,7 +88,7 @@ game.npc_skill.bind_cvars(add_cvar, DotConVar.FLAG_NOTIFY)   # in a dot-server m
 game.npc_skill.attach(spawner)                               # before the first spawn
 ```
 
-dot-server is not required: `bind_cvars` accepts any function shaped like `add_cvar`.
+GameSpice Server is not required: `bind_cvars` accepts any function shaped like `add_cvar`.
 
 ## Tactics
 

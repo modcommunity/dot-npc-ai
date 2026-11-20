@@ -28,5 +28,5 @@ Nothing errored: **a bot that never acts on what it sees looks like a bot that i
 
 - **A test measured a 3D distance on twelve bodies in free fall** and reported none had arrived; they were 78 metres below the goal and where they should have been horizontally. It needed a floor and a horizontal measure.
 - **A timeout test kept its alert switch on**, so the state it timed out into transitioned straight back. Correct behaviour, and a test of the wrong thing.
-- **A dot-combat test fired from a made-up point six metres off** and hit the floor at the gunner's feet: dot-combat relocating the shot, which is the anti-cheat working.
+- **A GameSpice Combat test fired from a made-up point six metres off** and hit the floor at the gunner's feet: GameSpice Combat relocating the shot, which is the anti-cheat working.
 - **The vengeance check put the attacker 50% further away** than the current target; the NPC walked toward the nearer one, and the 0.6 switch ratio took the vengeance back. That was the senses being right.

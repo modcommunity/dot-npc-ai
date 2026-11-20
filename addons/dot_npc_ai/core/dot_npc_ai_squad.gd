@@ -3,7 +3,7 @@ extends RefCounted
 
 ## NPCs that fight together: what one sees the rest know, and only so many attack at once. A few named slots per squad (two attack, one grenades, one flanks) stop twelve NPCs queueing in a line; one that misses the attack slot surrounds, flanks or waits, and the next steps in when an attacker dies.
 ## A member that sees an enemy tells the squad: second-hand in the others' [DotNpcAiMemory], with the sighter's velocity. Members are held weakly by instance id, since squad and brains pointing at each other is a cycle GDScript never frees.
-## dot-core only: a member is any object with the methods it is called with, so [DotNpcAiBrain] joins without this file naming it.
+## GameSpice Core only: a member is any object with the methods it is called with, so [DotNpcAiBrain] joins without this file naming it.
 
 # Slots and sharing are asked every think and do not log; the token pool logs its grants and releases.
 

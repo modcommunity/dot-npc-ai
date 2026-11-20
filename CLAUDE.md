@@ -1,4 +1,4 @@
-# dot-npc-ai
+# GameSpice NPC AI
 
 **How an NPC decides.** A behaviour tree with real running-state memory, a state machine for the many cases a tree is overkill for, a per-NPC blackboard that forgets, a character table that makes two NPCs on one tree different, the tactical layer (squads, sounds, cover, shooting, a learned heatmap), and the steering an NPC needs once there are ninety of them walking at the same door.
 
@@ -25,7 +25,7 @@ Read the family [CLAUDE.md](../../CLAUDE.md) first; this file is only what is sp
 | `addons/dot_npc_ai/fsm/` | `DotNpcAiMachine`, `DotNpcAiState` |
 | `addons/dot_npc_ai/core/` | blackboard, context, conditions, character, skill, memory, sounds, squad(s), heatmap and heat keeper |
 | `addons/dot_npc_ai/steer/` | `DotNpcAiSteering` (directions only), `DotNpcAiTactics` (scoring places to stand) |
-| `addons/dot_npc_ai/runtime/` | `DotNpcAiBrain`: the one file that joins this to dot-npc; `DotNpcAiScheduler`, the opt-in level-of-detail time-slicer ([scheduler](docs/scheduler.md)); `DotNpcAiAvoidance`, opt-in local avoidance for crowds ([avoidance](docs/avoidance.md)) |
+| `addons/dot_npc_ai/runtime/` | `DotNpcAiBrain`: the one file that joins this to GameSpice NPC; `DotNpcAiScheduler`, the opt-in level-of-detail time-slicer ([scheduler](docs/scheduler.md)); `DotNpcAiAvoidance`, opt-in local avoidance for crowds ([avoidance](docs/avoidance.md)) |
 | `addons/dot_npc_ai/annotate/` | `DotNpcAiNavAnnotator` (a `DotJob` over a `NavigationMesh` and a `World3D`; settings and queries in `dot_npc_ai_nav_annotator_state.gd`, the islands phase in `..._islands.gd`, both extended by path), `DotNpcAiNavAnnotations` (the result, saved per cache key), `DotNpcAiNavDebug` (draws it) |
 | `addons/dot_npc_ai/dot_npc_ai_api.gd` | the API level (2: map annotations), preloaded by path like every addon's |
 | `examples/selftest/` | the suite's layers, each extending the one before: `selftest_base`, `steering_tests`, `character_tests`, `conditions_tests`, `brain_tests`, `skill_tests`, `world_tests`; `npc_ai_selftest.gd` is the top and `_run` order |
@@ -76,7 +76,7 @@ Read the family [CLAUDE.md](../../CLAUDE.md) first; this file is only what is sp
 
 **Map annotations**
 
-- The annotator takes engine types only; it never names a navigation class of dot-npc or dot-bot. [navigation-annotations](docs/navigation-annotations.md#where-it-sits)
+- The annotator takes engine types only; it never names a navigation class of GameSpice NPC or GameSpice Bot. [navigation-annotations](docs/navigation-annotations.md#where-it-sits)
 - Rays see a body only after the physics server has stepped with it: wait physics frames before running it. A trimesh with backface collision gives no usable normal; a box hit from inside reports its own start with a zero normal (the solid test uses that). [navigation-annotations](docs/navigation-annotations.md#what-it-finds-and-how)
 - Drop and jump-up depth is mesh floor to mesh floor, never to a ray's hit; a lip within a step is not a gap. Both were wrong with every count passing. [navigation-annotations](docs/navigation-annotations.md#looked-at)
 - Give it `seeds` (spawns, teleport destinations): without them a sealed map's roof is its largest island. [navigation-annotations](docs/navigation-annotations.md#what-it-finds-and-how)
@@ -114,7 +114,7 @@ Read the family [CLAUDE.md](../../CLAUDE.md) first; this file is only what is sp
 | What an NPC hears | `DotNpcAiSounds.emit` from the game, attached to the director |
 | Who fights together, and how many attack at once | `"squad"` and `"attackers"` in the definition's meta, `DotNpcAiSquads` on the director |
 | Where the ones not attacking stand | `DotNpcAiBrain.surround`, `flank_lead`, the character's `tactics` |
-| Where an NPC hides | `DotNpcAiBrain.find_cover` / `take_cover`, over dot-npc's cover spots |
+| Where an NPC hides | `DotNpcAiBrain.find_cover` / `take_cover`, over GameSpice NPC's cover spots |
 | How fast an NPC turns | the character's `view_turn_deg` and `view_factor`, through `face` |
 | Whether and where it shoots | `ready_to_fire`, `aim_solution`, `fire_lane_clear`; the game resolves the shot |
 | How a squad splits the work | `claim_role` with `ROLE_ATTACK`, `ROLE_SUPPRESS`, `ROLE_FLANK` or a game's own |

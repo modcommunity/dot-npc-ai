@@ -1,4 +1,4 @@
-# dot-npc-ai docs
+# GameSpice NPC AI docs
 
 The reasoning behind how an NPC decides, one subject per file. [CLAUDE.md](../CLAUDE.md) has the short rules; these say why.
 

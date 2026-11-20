@@ -1,9 +1,9 @@
 class_name DotNpcAiBrain
 extends "dot_npc_ai_brain_senses.gd"
 
-## A [DotNpcBrain] that runs a behaviour tree or a state machine. The adapter: the ONLY file in dot-npc-ai that names anything from dot-npc, so the tree, machine, blackboard and steering stay liftable into a vehicle, a 2D game or a menu.
+## A [DotNpcBrain] that runs a behaviour tree or a state machine. The adapter: the ONLY file in GameSpice NPC AI that names anything from GameSpice NPC, so the tree, machine, blackboard and steering stay liftable into a vehicle, a 2D game or a menu.
 ## A game subclasses it and builds its decision in [method _build] (once, at spawn), e.g. `tree = DotNpcAiSelector.new(&"root", [DotNpcAiSequence.new(&"chase", [...]), DotNpcAiLeaf.Action.new(&"wander", _wander)])`.
-## Extended by PATH, like every brain: a script in a mounted dot-cloud pack cannot resolve a `class_name`, which is why `brain_script_path` is a path.
+## Extended by PATH, like every brain: a script in a mounted GameSpice Cloud pack cannot resolve a `class_name`, which is why `brain_script_path` is a path.
 
 const _Leaves := preload("dot_npc_ai_brain_leaves.gd")
 
@@ -221,7 +221,7 @@ func _refresh_character() -> void:
 	if context != null:
 		context.character = character
 
-	# Alertness is how far THIS one sees, and dot-npc's senses are what look. Until this
+	# Alertness is how far THIS one sees, and GameSpice NPC's senses are what look. Until this
 	# line nothing read the field at all: every character's alertness was decoration.
 	if npc != null:
 		npc.sight_scale = character.alertness if character != null else 1.0

@@ -16,7 +16,7 @@ Three of the fields do work rather than describe intent, and they are the reason
 
 ## A character from recorded people
 
-`DotNpcAiCharacter.from_percentiles(stats, tier)` builds a preset-based character whose reaction time, aim accuracy and aim skill come from the percentiles of recorded players (`reaction`, `aim_error`, `tracking`, each `{p20, p50, p80}`): easy takes the slow end (p80), normal the median, hard the fast end (p20). It takes a Dictionary or any object with `percentiles()` (dot-bot's `DotBotAimStats`), duck typed so neither addon names the other. Values are clamped to nightmare's floors, a missing or NaN metric keeps the preset's number, and personality is never touched. Suite: `_test_character_from_percentiles`.
+`DotNpcAiCharacter.from_percentiles(stats, tier)` builds a preset-based character whose reaction time, aim accuracy and aim skill come from the percentiles of recorded players (`reaction`, `aim_error`, `tracking`, each `{p20, p50, p80}`): easy takes the slow end (p80), normal the median, hard the fast end (p20). It takes a Dictionary or any object with `percentiles()` (GameSpice Bot's `DotBotAimStats`), duck typed so neither addon names the other. Values are clamped to nightmare's floors, a missing or NaN metric keeps the preset's number, and personality is never touched. Suite: `_test_character_from_percentiles`.
 
 ## The reaction clock is `target_since`, not `engaged_at`
 
@@ -26,9 +26,9 @@ Three of the fields do work rather than describe intent, and they are the reason
 
 Everything that decides by chance here (aim error, `RandomChance`, the weighted selector) goes through a hash of two integers rather than `randf`. A server rewinding to check a shot, a replay being scrubbed and a second run of the same headless test must agree about what an NPC chose, and a global RNG agrees with none of them: what it hands out depends on how many other things asked first.
 
-The mixer is kept in the positive half of a signed 64-bit int at every step. GDScript's `>>` sign-extends, so one that is allowed to go negative shifts ones in from the top and stops being uniform: dot-combat's half-moon bug in a different costume. The suite checks all four quadrants rather than the magnitude, because a magnitude check passes for a half-moon.
+The mixer is kept in the positive half of a signed 64-bit int at every step. GDScript's `>>` sign-extends, so one that is allowed to go negative shifts ones in from the top and stops being uniform: GameSpice Combat's half-moon bug in a different costume. The suite checks all four quadrants rather than the magnitude, because a magnitude check passes for a half-moon.
 
-**Give each NPC its own seed.** A preset is one resource; twenty NPCs sharing it share a seed, so every one takes the same shot with the same error at the same moment. It reads as a firing squad. `with_seed()` is the call, and `DotNpcAiBrain` makes it for a brain that did not, from `npc.seed`. That is dot-npc's per-spawn seed and never the engine object id, which moves whenever anything else is allocated first, so a replay would disagree with its recording. A brain that seeds itself does the same: `with_seed(npc.seed)`, and `deterministic_unit(npc.seed, salt)` for its own rolls.
+**Give each NPC its own seed.** A preset is one resource; twenty NPCs sharing it share a seed, so every one takes the same shot with the same error at the same moment. It reads as a firing squad. `with_seed()` is the call, and `DotNpcAiBrain` makes it for a brain that did not, from `npc.seed`. That is GameSpice NPC's per-spawn seed and never the engine object id, which moves whenever anything else is allocated first, so a replay would disagree with its recording. A brain that seeds itself does the same: `with_seed(npc.seed)`, and `deterministic_unit(npc.seed, salt)` for its own rolls.
 
 ## The server's skill, which is not a difficulty setting
 
@@ -41,7 +41,7 @@ So `DotNpcAiSkill` **moves** each character toward `easy()` or `nightmare()` by 
 - **Applied to what was authored, not to the last result.** The brain keeps `base_character` and re-applies on every `revision` change, or turning skill up and back down would not come back.
 - **On the director as node metadata, not in `DotRegistry`.** The registry is per process, and two servers in one process (which every game's suite runs) must not share a difficulty. A brain that spawned before the attach finds it on its next tick.
 
-`bind_cvars` takes a module's `add_cvar` as a Callable and duck-types the cvar it returns, because dot-server is not a dependency. It **reads the value back after registering**: a value set from argv before the module loaded is already in the cvar, and a binding that only listened for changes would leave the server saying `hard` while its NPCs are normal. The suite checks it against a fake cvar that starts pre-set.
+`bind_cvars` takes a module's `add_cvar` as a Callable and duck-types the cvar it returns, because GameSpice Server is not a dependency. It **reads the value back after registering**: a value set from argv before the module loaded is already in the cvar, and a binding that only listened for changes would leave the server saying `hard` while its NPCs are normal. The suite checks it against a fake cvar that starts pre-set.
 
 ## Alertness and memory_time reach the senses
 
@@ -51,10 +51,10 @@ The brain writes `DotNpcInstance.sight_scale` from the character's `alertness` o
 
 The search-the-last-known-spot branch is the brain's, so games stop writing it with their own hard-coded lifetimes:
 
-- **The last known position is kept every tick there is a target, including through dot-npc's commitment grace.** During the grace the senses hold the target and `target_position()` answers where they are (dot-npc's "follow them round the corner"). A memory that stopped at the last true sighting would send the NPC *back* to that corner when the grace ran out, which reads as it changing its mind.
+- **The last known position is kept every tick there is a target, including through GameSpice NPC's commitment grace.** During the grace the senses hold the target and `target_position()` answers where they are (GameSpice NPC's "follow them round the corner"). A memory that stopped at the last true sighting would send the NPC *back* to that corner when the grace ran out, which reads as it changing its mind.
 - **A memory of zero is no memory.** The blackboard reads a lifetime of 0 as "never expires", so a forgetful character written straight through would hold a grudge for ever. Also watch the argument order of `put(key, value, now, lifetime)`: passing the lifetime as `now` leaves a memory that never expires.
 - **`search()` sweeps, then forgets.** It walks to the spot, faces either side of its arrival heading for `memory_time * 0.4` (clamped 1-6 s), then returns SUCCESS and erases the memory so the branch does not restart. Stopping dead on arrival reads as the NPC never having looked.
-- **Being hurt is handled in `damaged`, not `_npc_damaged`.** Game brains override the hook and none calls `super`. With no target the NPC remembers where the hurt came from and turns to it, so the search branch goes to look; chasing somebody else, it switches by a `vengefulness` roll from its own seed. dot-npc's senses then keep the switch only if the attacker is actually perceived, so a vengeful NPC cannot be led away from a target it can see by somebody it cannot. A test of this must put the attacker no further than the current target, or dot-npc's 0.6 switch ratio correctly takes the vengeance back.
+- **Being hurt is handled in `damaged`, not `_npc_damaged`.** Game brains override the hook and none calls `super`. With no target the NPC remembers where the hurt came from and turns to it, so the search branch goes to look; chasing somebody else, it switches by a `vengefulness` roll from its own seed. GameSpice NPC's senses then keep the switch only if the attacker is actually perceived, so a vengeful NPC cannot be led away from a target it can see by somebody it cannot. A test of this must put the attacker no further than the current target, or GameSpice NPC's 0.6 switch ratio correctly takes the vengeance back.
 
 ## Human unevenness: hesitate, glance and their friends
 

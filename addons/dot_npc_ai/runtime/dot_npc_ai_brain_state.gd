@@ -178,7 +178,7 @@ var _attack_slot_target: StringName = &""
 var _attack_slot_name: StringName = &""
 
 ## Seconds an NPC steering at somewhere more than a couple of metres off may make no headway
-## before its path is asked for again without smoothing (dot-npc's `DotNpcPath.go_rough`).
+## before its path is asked for again without smoothing (GameSpice NPC's `DotNpcPath.go_rough`).
 var stuck_seconds: float = 1.5
 
 var _progress_at: Vector3 = Vector3.INF

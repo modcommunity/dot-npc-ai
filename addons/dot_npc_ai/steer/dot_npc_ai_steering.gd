@@ -1,7 +1,7 @@
 class_name DotNpcAiSteering
 extends RefCounted
 
-## The steering an NPC needs once ninety of them path to the same door: the gap dot-npc's docs/navigation.md names, since separation is a behaviour, not a fact about the world. Without it a horde is one stack of bodies (and on rigid bodies a solver pushing them apart all tick).
+## The steering an NPC needs once ninety of them path to the same door: the gap GameSpice NPC's docs/navigation.md names, since separation is a behaviour, not a fact about the world. Without it a horde is one stack of bodies (and on rigid bodies a solver pushing them apart all tick).
 ## Every method returns a DESIRED DIRECTION and moves nothing, so the caller feeds `steer_toward`, a `CharacterBody3D` or a `NavigationAgent3D` and this addon needs no idea what a body is.
 ## All horizontal: the vertical is the ground's, and steering in Y walks an NPC into the air on a slope.
 

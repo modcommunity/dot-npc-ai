@@ -20,4 +20,4 @@ Scoring happens in `choose(now)`, which the brain calls from its think, so a thr
 
 ## Not done
 
-No game's brain uses it yet; a game builds its actions in `_build` with `use_utility()` and puts gates in its tree. dot-bot's rule choice is not wired.
+No game's brain uses it yet; a game builds its actions in `_build` with `use_utility()` and puts gates in its tree. GameSpice Bot's rule choice is not wired.

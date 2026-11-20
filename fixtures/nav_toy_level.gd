@@ -65,7 +65,7 @@ static func build_large(cells: int = 12) -> Node3D:
 	return root
 
 
-## The mesh dot-bot's DotBotNav bakes for a body of [param radius] and [param height] that steps [param step], from [param root]'s static colliders (root in the tree).
+## The mesh GameSpice Bot's DotBotNav bakes for a body of [param radius] and [param height] that steps [param step], from [param root]'s static colliders (root in the tree).
 ## Same numbers as DotBotNav (cell 0.175 by 0.1, body rounded to whole cells), so the suite annotates what a game would.
 static func bake(root: Node3D, radius: float = 0.35, height: float = 1.8, step: float = 0.4) -> NavigationMesh:
 	var source := NavigationMeshSourceGeometryData3D.new()

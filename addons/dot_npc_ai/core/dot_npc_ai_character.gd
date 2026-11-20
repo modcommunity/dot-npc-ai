@@ -206,7 +206,7 @@ static func preset(preset_name: String) -> DotNpcAiCharacter:
 const STATS_TIERS := {"easy": "p80", "normal": "p50", "hard": "p20"}
 
 ## A character whose reaction and aim come from recorded people, on top of the [param tier] preset (easy, normal or hard).
-## [param stats] is `{metric: {"p20": x, "p50": x, "p80": x}}` or any object with a `percentiles()` returning one (dot-bot's `DotBotAimStats`), duck typed so neither addon names the other.
+## [param stats] is `{metric: {"p20": x, "p50": x, "p80": x}}` or any object with a `percentiles()` returning one (GameSpice Bot's `DotBotAimStats`), duck typed so neither addon names the other.
 ## Metrics: `reaction` (seconds, to [member reaction_time]), `aim_error` (degrees, to [member aim_accuracy]), `tracking` (degrees on a mover, to [member aim_skill]). A missing or NaN value keeps the preset's number; nothing goes past nightmare.
 static func from_percentiles(stats: Variant, tier: String = "normal") -> DotResult:
 	var table: Variant = stats

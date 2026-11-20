@@ -11,7 +11,7 @@ extends RefCounted
 const SEE_ENEMY := 1 << 0
 ## The committed target changed this tick, from nothing or from somebody else.
 const NEW_ENEMY := 1 << 1
-## There is a target and it is not perceived this tick: dot-npc's grace is running.
+## There is a target and it is not perceived this tick: GameSpice NPC's grace is running.
 const ENEMY_OCCLUDED := 1 << 2
 ## There was a target last tick and there is not one now.
 const LOST_ENEMY := 1 << 3

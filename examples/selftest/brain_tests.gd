@@ -558,7 +558,7 @@ func _test_squad_review_gaps() -> void:
 
 
 ## A fake of the one cvar shape [method DotNpcAiSkill.bind_cvars] relies on, so this suite
-## proves the binding without dot-server — which is not a dependency of this addon.
+## proves the binding without GameSpice Server — which is not a dependency of this addon.
 class FakeCvar:
 	extends RefCounted
 

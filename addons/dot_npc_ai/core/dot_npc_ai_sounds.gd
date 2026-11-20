@@ -1,7 +1,7 @@
 class_name DotNpcAiSounds
 extends RefCounted
 
-## Noises an NPC can hear: gunfire, footsteps, an explosion, a grenade landing. dot-npc's senses take a loudness per candidate and cannot say "somebody fired over there"; this is the world list of sounds (kind, place, radius, owner) every NPC listens to on its think.
+## Noises an NPC can hear: gunfire, footsteps, an explosion, a grenade landing. GameSpice NPC's senses take a loudness per candidate and cannot say "somebody fired over there"; this is the world list of sounds (kind, place, radius, owner) every NPC listens to on its think.
 ## A game emits ([method emit]); brains listen, scaled by alertness. Events, not states: a brain hears each sound once, by id, so a half-second gunshot is not heard thirty times and an old sound is not heard on walking into its radius.
 ## One per world, on the director as metadata like [DotNpcAiSkill]: two servers in one process must not hear each other.
 

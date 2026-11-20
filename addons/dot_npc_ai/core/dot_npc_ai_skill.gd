@@ -214,7 +214,7 @@ func cvar_specs() -> Array[Dictionary]:
 
 
 ## Registers the three cvars through [param add] (a server module's `add_cvar`, so they unregister on unload; or `(name, default, description, flags) -> cvar`) and keeps this in step. Returns the cvars made.
-## Duck-typed (needs `changed(old, new)` and `get_string()`), because dot-server is not a dependency and a game with no dedicated server must still install it.
+## Duck-typed (needs `changed(old, new)` and `get_string()`), because GameSpice Server is not a dependency and a game with no dedicated server must still install it.
 ## The current value is read back after registering: a cvar set early from argv already holds the operator's value.
 func bind_cvars(add: Callable, flags: int = 0) -> Array:
 	var made: Array = []
