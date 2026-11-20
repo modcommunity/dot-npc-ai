@@ -1,3 +1,5 @@
+[![dot-npc-ai - GameSpice addon](docs/banner.png)](https://moddingcommunity.com/a/228-dot-npc-ai)
+
 How NPCs make decisions in a Godot 4 game. It is the decision half of [dot-npc](https://github.com/gamespice-platform/npc): you describe what an NPC does with a behaviour tree, a state machine, or a score-based (utility) chooser, and dot-npc-ai runs it. It also gives each NPC a character (so two NPCs on one tree behave differently), squad tactics, hearing, cover, shooting, and steering for crowds. Part of TMC's open source **Gamespice** collection (MIT licence).
 
 > Built with Claude Code. Every addon has a headless test suite and the suites pass, but little of this has met real players yet. Please report rough edges.
