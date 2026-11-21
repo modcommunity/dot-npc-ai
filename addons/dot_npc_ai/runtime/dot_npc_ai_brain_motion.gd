@@ -214,7 +214,8 @@ func face(direction: Vector3) -> void:
 
 	var flat := Vector3(direction.x, 0.0, direction.z)
 
-	if flat.length_squared() < 0.000001:
+	# A target the brain does not know (Vector3.INF - position) is not finite: normalized() would warn with a backtrace every think.
+	if not flat.is_finite() or flat.length_squared() < 0.000001:
 		return
 
 	var from := _facing_at_tick if _facing_at_tick.length_squared() > 0.0001 else npc.facing()
